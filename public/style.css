@@ -286,6 +286,23 @@ select option {
   margin-bottom: 1.25rem;
 }
 
+.your-secret-display {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 0.4rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+.your-secret-display span {
+  color: var(--accent);
+  font-family: "Courier New", monospace;
+  font-size: 1.1rem;
+  letter-spacing: 0.2em;
+  font-weight: 800;
+}
+
 .turn-badge {
   display: inline-block;
   padding: 0.35rem 1rem;

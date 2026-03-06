@@ -146,9 +146,10 @@ socket.on("waiting-for-opponent-secret", () => {
 
 // ── Game Playing ────────────────────────────────────────────────────────────
 
-socket.on("game-playing", ({ yourName, opponentName, digitLength, isYourTurn }) => {
+socket.on("game-playing", ({ yourName, opponentName, digitLength, isYourTurn, yourSecret }) => {
   currentDigitLength = digitLength;
   $("#game-title").textContent = `${yourName} vs ${opponentName}`;
+  $("#game-your-secret").textContent = yourSecret;
   $("#input-guess").maxLength = digitLength;
   $("#input-guess").placeholder = "0".repeat(digitLength);
   $("#input-guess").value = "";

@@ -148,6 +148,7 @@ io.on("connection", (socket) => {
           opponentName: opponent.name,
           digitLength: room.digitLength,
           isYourTurn: p.id === room.turn,
+          yourSecret: p.secret,
         });
       });
     } else {
