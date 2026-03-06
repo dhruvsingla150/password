@@ -40,8 +40,8 @@ function renderGuesses(container, guesses) {
       <span style="color:var(--muted);font-size:0.75rem;min-width:1.2em;">${i + 1}</span>
       <span class="guess-number">${g.guess}</span>
       <span class="guess-result">
-        <span class="result-badge bulls">${g.bulls}B</span>
-        <span class="result-badge cows">${g.cows}C</span>
+        <span class="result-badge numbers">${g.numbersCorrect}N</span>
+        <span class="result-badge positions">${g.positionsCorrect}P</span>
       </span>
     `;
     container.appendChild(row);
@@ -115,6 +115,7 @@ socket.on("game-start-set-secret", ({ digitLength, players }) => {
   $("#input-secret").maxLength = digitLength;
   $("#input-secret").placeholder = "0".repeat(digitLength);
   $("#input-secret").value = "";
+  $("#input-secret").disabled = false;
   $("#btn-secret").disabled = false;
   $("#btn-secret").classList.remove("hidden");
   $("#secret-waiting").classList.add("hidden");
@@ -244,6 +245,9 @@ socket.on("waiting-for-rematch", () => {
 
 socket.on("opponent-left", ({ name }) => {
   showToast(`${name} left the game.`);
+  $("#input-secret").disabled = false;
+  $("#input-guess").disabled = false;
+  $("#btn-guess").disabled = false;
   showScreen("lobby");
 });
 

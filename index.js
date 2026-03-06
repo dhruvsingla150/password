@@ -36,29 +36,25 @@ function generateRoomCode() {
 
 function evaluateGuess(secret, guess) {
   const len = secret.length;
-  let bulls = 0;
-  let cows = 0;
-  const secretUnmatched = [];
-  const guessUnmatched = [];
+  let positionsCorrect = 0;
+  let numbersCorrect = 0;
+  const secretDigits = secret.split("");
 
   for (let i = 0; i < len; i++) {
     if (guess[i] === secret[i]) {
-      bulls++;
-    } else {
-      secretUnmatched.push(secret[i]);
-      guessUnmatched.push(guess[i]);
+      positionsCorrect++;
     }
   }
 
-  for (const digit of guessUnmatched) {
-    const idx = secretUnmatched.indexOf(digit);
+  for (const digit of guess) {
+    const idx = secretDigits.indexOf(digit);
     if (idx !== -1) {
-      cows++;
-      secretUnmatched.splice(idx, 1);
+      numbersCorrect++;
+      secretDigits.splice(idx, 1);
     }
   }
 
-  return { bulls, cows };
+  return { numbersCorrect, positionsCorrect };
 }
 
 // ── Socket Handlers ─────────────────────────────────────────────────────────
@@ -180,7 +176,7 @@ io.on("connection", (socket) => {
 
     room.guesses[socket.id].push({ guess: g, ...result });
 
-    if (result.bulls === room.digitLength) {
+    if (result.positionsCorrect === room.digitLength) {
       room.phase = "finished";
       room.winner = socket.id;
 

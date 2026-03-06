@@ -365,14 +365,14 @@ select option {
   font-weight: 700;
 }
 
-.result-badge.bulls {
-  background: rgba(0, 212, 170, 0.15);
-  color: var(--bull);
-}
-
-.result-badge.cows {
+.result-badge.numbers {
   background: rgba(255, 196, 77, 0.15);
   color: var(--cow);
+}
+
+.result-badge.positions {
+  background: rgba(0, 212, 170, 0.15);
+  color: var(--bull);
 }
 
 .input-row {
@@ -497,7 +497,6 @@ select option {
 .toast.visible {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
-  pointer-events: auto;
 }
 
 /* ── Hidden ────────────────────────────────────────── */
