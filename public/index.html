@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Password Game</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- ── LOBBY ───────────────────────────────────────── -->
+    <div id="screen-lobby" class="screen active">
+      <div class="card lobby-card">
+        <h1>Password Game</h1>
+        <p class="subtitle">Pick a secret number. Guess your opponent's. First to crack it wins.</p>
+
+        <div class="input-group">
+          <label for="input-name">Your Name</label>
+          <input id="input-name" type="text" maxlength="20" placeholder="Enter your name" autocomplete="off" />
+        </div>
+
+        <div class="tab-bar">
+          <button class="tab active" data-tab="create">Create Room</button>
+          <button class="tab" data-tab="join">Join Room</button>
+        </div>
+
+        <div id="tab-create" class="tab-content active">
+          <div class="input-group">
+            <label for="input-digits">Number of Digits</label>
+            <select id="input-digits">
+              <option value="3">3 digits</option>
+              <option value="4" selected>4 digits</option>
+              <option value="5">5 digits</option>
+              <option value="6">6 digits</option>
+              <option value="7">7 digits</option>
+              <option value="8">8 digits</option>
+            </select>
+          </div>
+          <button id="btn-create" class="btn primary">Create Room</button>
+        </div>
+
+        <div id="tab-join" class="tab-content">
+          <div class="input-group">
+            <label for="input-code">Room Code</label>
+            <input id="input-code" type="text" maxlength="6" placeholder="e.g. A1B2C3" autocomplete="off" />
+          </div>
+          <button id="btn-join" class="btn primary">Join Room</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── WAITING FOR OPPONENT ────────────────────────── -->
+    <div id="screen-waiting" class="screen">
+      <div class="card">
+        <h2>Room Created!</h2>
+        <p>Share this code with your friend:</p>
+        <div class="room-code" id="display-code"></div>
+        <button id="btn-copy" class="btn secondary">Copy Code</button>
+        <div class="loader">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        </div>
+        <p class="muted">Waiting for opponent to join...</p>
+      </div>
+    </div>
+
+    <!-- ── SET SECRET ──────────────────────────────────── -->
+    <div id="screen-secret" class="screen">
+      <div class="card">
+        <h2>Set Your Secret Number</h2>
+        <p>Pick a <span id="digit-count-label"></span>-digit secret number for your opponent to guess.</p>
+        <div class="input-group">
+          <input id="input-secret" type="text" inputmode="numeric" autocomplete="off" placeholder="Your secret..." />
+        </div>
+        <button id="btn-secret" class="btn primary">Lock In</button>
+        <div id="secret-waiting" class="hidden">
+          <div class="loader">
+            <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+          </div>
+          <p class="muted">Waiting for opponent to set their secret...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── GAME PLAY ───────────────────────────────────── -->
+    <div id="screen-game" class="screen">
+      <div class="game-layout">
+        <div class="game-header">
+          <h2 id="game-title"></h2>
+          <div id="turn-indicator" class="turn-badge"></div>
+        </div>
+
+        <div class="game-columns">
+          <div class="column">
+            <h3>Your Guesses</h3>
+            <div class="guess-list" id="your-guesses"></div>
+          </div>
+          <div class="column">
+            <h3>Opponent's Guesses</h3>
+            <div class="guess-list" id="opponent-guesses"></div>
+          </div>
+        </div>
+
+        <div id="guess-input-area">
+          <div class="input-row">
+            <input id="input-guess" type="text" inputmode="numeric" placeholder="Enter guess..." autocomplete="off" />
+            <button id="btn-guess" class="btn primary">Guess</button>
+          </div>
+        </div>
+
+        <div class="legend">
+          <span class="legend-item"><span class="bull-dot"></span> Correct position</span>
+          <span class="legend-item"><span class="cow-dot"></span> Wrong position</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── GAME OVER ───────────────────────────────────── -->
+    <div id="screen-gameover" class="screen">
+      <div class="card gameover-card">
+        <div id="gameover-icon"></div>
+        <h2 id="gameover-title"></h2>
+        <p id="gameover-subtitle"></p>
+
+        <div class="secrets-reveal">
+          <div class="secret-box">
+            <span class="label">Your Secret</span>
+            <span class="value" id="reveal-yours"></span>
+          </div>
+          <div class="secret-box">
+            <span class="label">Opponent's Secret</span>
+            <span class="value" id="reveal-theirs"></span>
+          </div>
+        </div>
+
+        <div class="gameover-columns">
+          <div class="column">
+            <h3>Your Guesses</h3>
+            <div class="guess-list" id="go-your-guesses"></div>
+          </div>
+          <div class="column">
+            <h3>Opponent's Guesses</h3>
+            <div class="guess-list" id="go-opponent-guesses"></div>
+          </div>
+        </div>
+
+        <button id="btn-rematch" class="btn primary">Play Again</button>
+        <div id="rematch-waiting" class="hidden">
+          <div class="loader">
+            <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+          </div>
+          <p class="muted">Waiting for opponent...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TOAST ───────────────────────────────────────── -->
+    <div id="toast" class="toast hidden"></div>
+
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
