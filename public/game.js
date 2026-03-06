@@ -1,8 +1,7 @@
 const socket = io();
 
-// ── DOM References ──────────────────────────────────────────────────────────
-
 const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
 const screens = {
   lobby: $("#screen-lobby"),
   waiting: $("#screen-waiting"),
@@ -14,176 +13,16 @@ const screens = {
 let currentDigitLength = 4;
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  PARTICLE BACKGROUND
+//  CURSOR SPOTLIGHT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const particleCanvas = $("#particle-canvas");
-const pCtx = particleCanvas.getContext("2d");
-let particles = [];
-let particleAnimId = null;
-
-function resizeParticleCanvas() {
-  particleCanvas.width = window.innerWidth;
-  particleCanvas.height = window.innerHeight;
-}
-
-function createParticle(x, y, color, velocity, life) {
-  return {
-    x: x ?? Math.random() * particleCanvas.width,
-    y: y ?? Math.random() * particleCanvas.height,
-    vx: velocity ? velocity.x : (Math.random() - 0.5) * 0.3,
-    vy: velocity ? velocity.y : (Math.random() - 0.5) * 0.3,
-    radius: Math.random() * 2 + 0.5,
-    color: color || `hsla(${Math.random() * 60 + 240}, 70%, 70%, ${Math.random() * 0.4 + 0.1})`,
-    life: life || Infinity,
-    maxLife: life || Infinity,
-  };
-}
-
-function initParticles() {
-  resizeParticleCanvas();
-  particles = [];
-  const count = Math.min(80, Math.floor(window.innerWidth * window.innerHeight / 12000));
-  for (let i = 0; i < count; i++) {
-    particles.push(createParticle());
-  }
-}
-
-function animateParticles() {
-  pCtx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
-
-  for (let i = particles.length - 1; i >= 0; i--) {
-    const p = particles[i];
-    p.x += p.vx;
-    p.y += p.vy;
-
-    if (p.life !== Infinity) {
-      p.life--;
-      if (p.life <= 0) {
-        particles.splice(i, 1);
-        continue;
-      }
-    }
-
-    if (p.x < 0) p.x = particleCanvas.width;
-    if (p.x > particleCanvas.width) p.x = 0;
-    if (p.y < 0) p.y = particleCanvas.height;
-    if (p.y > particleCanvas.height) p.y = 0;
-
-    const alpha = p.life !== Infinity ? p.life / p.maxLife : 1;
-    pCtx.beginPath();
-    pCtx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-    pCtx.fillStyle = p.life !== Infinity
-      ? p.color.replace(/[\d.]+\)$/, `${alpha})`)
-      : p.color;
-    pCtx.fill();
-  }
-
-  const ambientParticles = particles.filter(p => p.life === Infinity);
-  for (let i = 0; i < ambientParticles.length; i++) {
-    for (let j = i + 1; j < ambientParticles.length; j++) {
-      const a = ambientParticles[i];
-      const b = ambientParticles[j];
-      const dx = a.x - b.x;
-      const dy = a.y - b.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 120) {
-        pCtx.beginPath();
-        pCtx.moveTo(a.x, a.y);
-        pCtx.lineTo(b.x, b.y);
-        pCtx.strokeStyle = `rgba(124, 92, 252, ${0.08 * (1 - dist / 120)})`;
-        pCtx.lineWidth = 0.5;
-        pCtx.stroke();
-      }
-    }
-  }
-
-  particleAnimId = requestAnimationFrame(animateParticles);
-}
-
-function burstParticles(x, y, count, color) {
-  for (let i = 0; i < count; i++) {
-    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
-    const speed = Math.random() * 3 + 1;
-    particles.push(createParticle(x, y, color, {
-      x: Math.cos(angle) * speed,
-      y: Math.sin(angle) * speed,
-    }, 60 + Math.random() * 40));
-  }
-}
-
-window.addEventListener("resize", resizeParticleCanvas);
-initParticles();
-animateParticles();
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  DIGIT RAIN (Matrix-style, lobby only)
-// ══════════════════════════════════════════════════════════════════════════════
-
-const drCanvas = $("#digit-rain-canvas");
-const drCtx = drCanvas.getContext("2d");
-let digitRainActive = false;
-let drAnimId = null;
-let columns = [];
-
-function initDigitRain() {
-  drCanvas.width = window.innerWidth;
-  drCanvas.height = window.innerHeight;
-  const fontSize = 14;
-  const colCount = Math.floor(drCanvas.width / fontSize);
-  columns = [];
-  for (let i = 0; i < colCount; i++) {
-    columns.push({
-      x: i * fontSize,
-      y: Math.random() * drCanvas.height,
-      speed: Math.random() * 2 + 1,
-      chars: [],
-    });
-  }
-}
-
-function animateDigitRain() {
-  if (!digitRainActive) return;
-  drCtx.fillStyle = "rgba(6, 6, 14, 0.15)";
-  drCtx.fillRect(0, 0, drCanvas.width, drCanvas.height);
-  drCtx.font = "14px 'Courier New', monospace";
-
-  for (const col of columns) {
-    const char = Math.floor(Math.random() * 10).toString();
-    drCtx.fillStyle = `rgba(0, 212, 170, ${Math.random() * 0.5 + 0.2})`;
-    drCtx.fillText(char, col.x, col.y);
-    col.y += col.speed * 8;
-    if (col.y > drCanvas.height) {
-      col.y = -20;
-      col.speed = Math.random() * 2 + 1;
-    }
-  }
-
-  drAnimId = requestAnimationFrame(animateDigitRain);
-}
-
-function startDigitRain() {
-  if (digitRainActive) return;
-  digitRainActive = true;
-  drCanvas.style.opacity = "0.18";
-  initDigitRain();
-  animateDigitRain();
-}
-
-function stopDigitRain() {
-  digitRainActive = false;
-  if (drAnimId) cancelAnimationFrame(drAnimId);
-  drCtx.clearRect(0, 0, drCanvas.width, drCanvas.height);
-}
-
-window.addEventListener("resize", () => {
-  if (digitRainActive) initDigitRain();
+document.addEventListener("mousemove", (e) => {
+  document.documentElement.style.setProperty("--mx", e.clientX + "px");
+  document.documentElement.style.setProperty("--my", e.clientY + "px");
 });
 
-startDigitRain();
-
 // ══════════════════════════════════════════════════════════════════════════════
-//  CONFETTI ENGINE
+//  CONFETTI
 // ══════════════════════════════════════════════════════════════════════════════
 
 const confettiCanvas = $("#confetti-canvas");
@@ -191,60 +30,55 @@ const cCtx = confettiCanvas.getContext("2d");
 let confettiPieces = [];
 let confettiAnimId = null;
 
-function resizeConfettiCanvas() {
+function resizeConfetti() {
   confettiCanvas.width = window.innerWidth;
   confettiCanvas.height = window.innerHeight;
 }
+window.addEventListener("resize", resizeConfetti);
+resizeConfetti();
 
 function launchConfetti() {
-  resizeConfettiCanvas();
-  confettiPieces = [];
-  const colors = ["#7c5cfc", "#00d4aa", "#ffc44d", "#ff4d6a", "#9b7dff", "#00ffcc"];
-
-  for (let i = 0; i < 150; i++) {
+  resizeConfetti();
+  const colors = ["#d4a017", "#27ae60", "#d4d4d4", "#c0392b"];
+  for (let i = 0; i < 100; i++) {
     confettiPieces.push({
       x: Math.random() * confettiCanvas.width,
-      y: -20 - Math.random() * 200,
-      w: Math.random() * 10 + 5,
-      h: Math.random() * 6 + 3,
+      y: -10 - Math.random() * 150,
+      w: Math.random() * 8 + 3,
+      h: Math.random() * 4 + 2,
       color: colors[Math.floor(Math.random() * colors.length)],
-      vx: (Math.random() - 0.5) * 4,
-      vy: Math.random() * 3 + 2,
-      rotation: Math.random() * 360,
-      rotSpeed: (Math.random() - 0.5) * 10,
-      life: 200 + Math.random() * 100,
+      vx: (Math.random() - 0.5) * 3,
+      vy: Math.random() * 2.5 + 1.5,
+      rot: Math.random() * 360,
+      rotV: (Math.random() - 0.5) * 8,
+      life: 180 + Math.random() * 80,
     });
   }
-
   if (!confettiAnimId) animateConfetti();
 }
 
 function animateConfetti() {
   cCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
-
   for (let i = confettiPieces.length - 1; i >= 0; i--) {
     const c = confettiPieces[i];
     c.x += c.vx;
     c.y += c.vy;
-    c.vy += 0.03;
-    c.vx *= 0.99;
-    c.rotation += c.rotSpeed;
+    c.vy += 0.025;
+    c.vx *= 0.995;
+    c.rot += c.rotV;
     c.life--;
-
     if (c.life <= 0 || c.y > confettiCanvas.height + 20) {
       confettiPieces.splice(i, 1);
       continue;
     }
-
     cCtx.save();
     cCtx.translate(c.x, c.y);
-    cCtx.rotate((c.rotation * Math.PI) / 180);
+    cCtx.rotate((c.rot * Math.PI) / 180);
+    cCtx.globalAlpha = Math.min(1, c.life / 25);
     cCtx.fillStyle = c.color;
-    cCtx.globalAlpha = Math.min(1, c.life / 30);
     cCtx.fillRect(-c.w / 2, -c.h / 2, c.w, c.h);
     cCtx.restore();
   }
-
   if (confettiPieces.length > 0) {
     confettiAnimId = requestAnimationFrame(animateConfetti);
   } else {
@@ -252,23 +86,19 @@ function animateConfetti() {
   }
 }
 
-window.addEventListener("resize", resizeConfettiCanvas);
-
 // ══════════════════════════════════════════════════════════════════════════════
-//  SOUND SYSTEM (Web Audio API)
+//  SOUND SYSTEM
 // ══════════════════════════════════════════════════════════════════════════════
 
 let soundEnabled = false;
 let audioCtx = null;
 
 function getAudioCtx() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   return audioCtx;
 }
 
-function playTone(freq, duration, type, volume) {
+function playTone(freq, dur, type, vol) {
   if (!soundEnabled) return;
   try {
     const ctx = getAudioCtx();
@@ -276,68 +106,44 @@ function playTone(freq, duration, type, volume) {
     const gain = ctx.createGain();
     osc.type = type || "sine";
     osc.frequency.setValueAtTime(freq, ctx.currentTime);
-    gain.gain.setValueAtTime(volume || 0.1, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (duration || 0.2));
+    gain.gain.setValueAtTime(vol || 0.08, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (dur || 0.15));
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start();
-    osc.stop(ctx.currentTime + (duration || 0.2));
-  } catch (_) { /* audio not available */ }
+    osc.stop(ctx.currentTime + (dur || 0.15));
+  } catch (_) {}
 }
 
-function playClick() { playTone(800, 0.06, "square", 0.04); }
-function playSuccess() {
-  playTone(523, 0.15, "sine", 0.08);
-  setTimeout(() => playTone(659, 0.15, "sine", 0.08), 100);
-  setTimeout(() => playTone(784, 0.2, "sine", 0.08), 200);
+function sfxClick() { playTone(600, 0.04, "square", 0.03); }
+function sfxSuccess() {
+  playTone(440, 0.12, "sine", 0.06);
+  setTimeout(() => playTone(554, 0.12, "sine", 0.06), 80);
+  setTimeout(() => playTone(659, 0.16, "sine", 0.06), 160);
 }
-function playError() {
-  playTone(200, 0.15, "square", 0.06);
-  setTimeout(() => playTone(160, 0.2, "square", 0.06), 120);
+function sfxError() {
+  playTone(180, 0.12, "square", 0.05);
+  setTimeout(() => playTone(140, 0.18, "square", 0.05), 100);
 }
-function playWin() {
-  [523, 659, 784, 1047].forEach((f, i) => {
-    setTimeout(() => playTone(f, 0.25, "sine", 0.1), i * 120);
-  });
+function sfxWin() {
+  [440, 554, 659, 880].forEach((f, i) => setTimeout(() => playTone(f, 0.2, "sine", 0.08), i * 100));
 }
-function playLose() {
-  [400, 350, 300, 250].forEach((f, i) => {
-    setTimeout(() => playTone(f, 0.2, "triangle", 0.07), i * 150);
-  });
+function sfxLose() {
+  [350, 310, 270, 220].forEach((f, i) => setTimeout(() => playTone(f, 0.18, "triangle", 0.06), i * 130));
 }
-function playGuess() { playTone(440, 0.08, "sine", 0.05); }
-function playTurn() {
-  playTone(660, 0.1, "sine", 0.06);
-  setTimeout(() => playTone(880, 0.12, "sine", 0.06), 80);
+function sfxGuess() { playTone(350, 0.06, "sine", 0.04); }
+function sfxTurn() {
+  playTone(550, 0.08, "sine", 0.05);
+  setTimeout(() => playTone(740, 0.1, "sine", 0.05), 60);
 }
 
 $("#sound-toggle").addEventListener("click", () => {
   soundEnabled = !soundEnabled;
   const btn = $("#sound-toggle");
-  btn.textContent = soundEnabled ? "🔊" : "🔇";
   btn.classList.toggle("active", soundEnabled);
-  if (soundEnabled) {
-    getAudioCtx();
-    playClick();
-  }
-});
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  BUTTON RIPPLE EFFECT
-// ══════════════════════════════════════════════════════════════════════════════
-
-document.querySelectorAll(".btn").forEach((btn) => {
-  btn.addEventListener("click", function (e) {
-    const ripple = document.createElement("span");
-    ripple.className = "btn-ripple";
-    const rect = this.getBoundingClientRect();
-    const size = Math.max(rect.width, rect.height) * 2;
-    ripple.style.width = ripple.style.height = size + "px";
-    ripple.style.left = e.clientX - rect.left - size / 2 + "px";
-    ripple.style.top = e.clientY - rect.top - size / 2 + "px";
-    this.appendChild(ripple);
-    ripple.addEventListener("animationend", () => ripple.remove());
-  });
+  $("#sound-icon-off").style.display = soundEnabled ? "none" : "block";
+  $("#sound-icon-on").style.display = soundEnabled ? "block" : "none";
+  if (soundEnabled) { getAudioCtx(); sfxClick(); }
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -359,21 +165,18 @@ function createDigitBoxes(container, count) {
 }
 
 function focusDigitBox(index) {
-  const boxes = document.querySelectorAll("#secret-digit-boxes .digit-box");
-  boxes.forEach((b) => b.classList.remove("active"));
-  if (index < boxes.length) {
-    boxes[index].classList.add("active");
-  }
+  $$("#secret-digit-boxes .digit-box").forEach(b => b.classList.remove("active"));
+  const boxes = $$("#secret-digit-boxes .digit-box");
+  if (index < boxes.length) boxes[index].classList.add("active");
 }
 
 function updateDigitBoxes() {
-  const boxes = document.querySelectorAll("#secret-digit-boxes .digit-box");
-  boxes.forEach((box, i) => {
+  $$("#secret-digit-boxes .digit-box").forEach((box, i) => {
     const val = secretDigitValues[i] || "";
+    const wasFilled = box.classList.contains("filled");
     box.textContent = val;
     box.classList.toggle("filled", val !== "");
-    if (val !== "" && !box.dataset.animated) {
-      box.dataset.animated = "1";
+    if (val !== "" && !wasFilled) {
       box.style.animation = "none";
       box.offsetHeight;
       box.style.animation = "";
@@ -383,13 +186,12 @@ function updateDigitBoxes() {
 }
 
 function getActiveDigitIndex() {
-  const firstEmpty = secretDigitValues.indexOf("");
-  return firstEmpty === -1 ? secretDigitValues.length - 1 : firstEmpty;
+  const idx = secretDigitValues.indexOf("");
+  return idx === -1 ? secretDigitValues.length - 1 : idx;
 }
 
 document.addEventListener("keydown", (e) => {
-  const secretScreen = screens.secret;
-  if (!secretScreen.classList.contains("active")) return;
+  if (!screens.secret.classList.contains("active")) return;
   if ($("#input-secret").disabled) return;
 
   if (/^\d$/.test(e.key)) {
@@ -397,7 +199,7 @@ document.addEventListener("keydown", (e) => {
     if (idx < currentDigitLength) {
       secretDigitValues[idx] = e.key;
       updateDigitBoxes();
-      playClick();
+      sfxClick();
       focusDigitBox(Math.min(idx + 1, currentDigitLength - 1));
     }
     e.preventDefault();
@@ -407,8 +209,6 @@ document.addEventListener("keydown", (e) => {
       idx = Math.max(0, idx - 1);
     }
     secretDigitValues[idx] = "";
-    const boxes = document.querySelectorAll("#secret-digit-boxes .digit-box");
-    if (boxes[idx]) delete boxes[idx].dataset.animated;
     updateDigitBoxes();
     focusDigitBox(idx);
     e.preventDefault();
@@ -423,24 +223,19 @@ document.addEventListener("keydown", (e) => {
 // ══════════════════════════════════════════════════════════════════════════════
 
 function showScreen(name) {
-  Object.values(screens).forEach((s) => s.classList.remove("active"));
+  Object.values(screens).forEach(s => s.classList.remove("active"));
   screens[name].classList.add("active");
-
-  if (name === "lobby") {
-    startDigitRain();
-  } else {
-    stopDigitRain();
-  }
 }
 
-function showToast(msg) {
+function showToast(msg, type) {
   const toast = $("#toast");
   toast.textContent = msg;
-  toast.classList.remove("hidden");
+  toast.className = "toast";
+  if (type === "success") toast.classList.add("toast-success");
   toast.classList.add("visible");
   setTimeout(() => {
     toast.classList.remove("visible");
-    setTimeout(() => toast.classList.add("hidden"), 400);
+    setTimeout(() => toast.classList.add("hidden"), 300);
   }, 3000);
 }
 
@@ -453,18 +248,17 @@ function renderGuesses(container, guesses, animate) {
 
     if (animate && i >= prevCount) {
       row.classList.add("new-guess");
-      row.style.animationDelay = `${(i - prevCount) * 0.08}s`;
+      row.style.animationDelay = `${(i - prevCount) * 0.06}s`;
     }
 
     const allPositions = g.positionsCorrect === currentDigitLength;
-    row.innerHTML = `
-      <span style="color:var(--muted);font-size:0.75rem;min-width:1.2em;">${i + 1}</span>
-      <span class="guess-number">${g.guess}</span>
-      <span class="guess-result">
-        <span class="result-badge numbers">${g.numbersCorrect}N</span>
-        <span class="result-badge positions${allPositions ? " perfect" : ""}">${g.positionsCorrect}P</span>
-      </span>
-    `;
+    row.innerHTML =
+      `<span class="guess-idx">${String(i + 1).padStart(2, "0")}</span>` +
+      `<span class="guess-number">${g.guess}</span>` +
+      `<span class="guess-result">` +
+        `<span class="result-badge numbers">${g.numbersCorrect}N</span>` +
+        `<span class="result-badge positions${allPositions ? " perfect" : ""}">${g.positionsCorrect}P</span>` +
+      `</span>`;
     container.appendChild(row);
   });
   container.scrollTop = container.scrollHeight;
@@ -477,20 +271,20 @@ function animateRoomCode(code) {
     const span = document.createElement("span");
     span.className = "char";
     span.textContent = char;
-    span.style.animationDelay = `${i * 0.08}s`;
+    span.style.animationDelay = `${i * 0.1}s`;
     display.appendChild(span);
   });
 }
 
 // ── Lobby Tabs ──────────────────────────────────────────────────────────────
 
-document.querySelectorAll(".tab").forEach((tab) => {
+$$(".tab").forEach(tab => {
   tab.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
-    document.querySelectorAll(".tab-content").forEach((c) => c.classList.remove("active"));
+    $$(".tab").forEach(t => t.classList.remove("active"));
+    $$(".tab-content").forEach(c => c.classList.remove("active"));
     tab.classList.add("active");
     $(`#tab-${tab.dataset.tab}`).classList.add("active");
-    playClick();
+    sfxClick();
   });
 });
 
@@ -498,14 +292,9 @@ document.querySelectorAll(".tab").forEach((tab) => {
 
 $("#btn-create").addEventListener("click", () => {
   const name = $("#input-name").value.trim();
-  if (!name) {
-    showToast("Please enter your name.");
-    playError();
-    return;
-  }
-  const digitLength = $("#input-digits").value;
-  socket.emit("create-room", { name, digitLength });
-  playClick();
+  if (!name) { showToast("Agent ID required."); sfxError(); return; }
+  socket.emit("create-room", { name, digitLength: $("#input-digits").value });
+  sfxClick();
 });
 
 // ── Join Room ───────────────────────────────────────────────────────────────
@@ -513,44 +302,31 @@ $("#btn-create").addEventListener("click", () => {
 $("#btn-join").addEventListener("click", () => {
   const name = $("#input-name").value.trim();
   const code = $("#input-code").value.trim();
-  if (!name) {
-    showToast("Please enter your name.");
-    playError();
-    return;
-  }
-  if (!code) {
-    showToast("Please enter a room code.");
-    playError();
-    return;
-  }
+  if (!name) { showToast("Agent ID required."); sfxError(); return; }
+  if (!code) { showToast("Access code required."); sfxError(); return; }
   socket.emit("join-room", { code, name });
-  playClick();
+  sfxClick();
 });
 
-// ── Room Created -> Waiting ─────────────────────────────────────────────────
+// ── Room Created ────────────────────────────────────────────────────────────
 
 socket.on("room-created", ({ code, digitLength }) => {
   currentDigitLength = digitLength;
   animateRoomCode(code);
   showScreen("waiting");
-  playSuccess();
-
-  burstParticles(window.innerWidth / 2, window.innerHeight / 2, 30, "rgba(0, 212, 170, 0.6)");
+  sfxSuccess();
 });
 
 $("#btn-copy").addEventListener("click", () => {
   const code = $("#display-code").textContent;
   navigator.clipboard.writeText(code).then(
-    () => showToast("Code copied!"),
-    () => showToast("Couldn't copy — select it manually.")
+    () => showToast("Code copied to clipboard.", "success"),
+    () => showToast("Copy failed — select manually.")
   );
-  const toast = $("#toast");
-  toast.style.background = "var(--accent)";
-  setTimeout(() => (toast.style.background = ""), 3200);
-  playClick();
+  sfxClick();
 });
 
-// ── Both Joined -> Set Secret ───────────────────────────────────────────────
+// ── Set Secret Screen ───────────────────────────────────────────────────────
 
 socket.on("game-start-set-secret", ({ digitLength }) => {
   currentDigitLength = digitLength;
@@ -561,30 +337,27 @@ socket.on("game-start-set-secret", ({ digitLength }) => {
   $("#btn-secret").disabled = false;
   $("#btn-secret").classList.remove("hidden");
   $("#secret-waiting").classList.add("hidden");
-
   createDigitBoxes($("#secret-digit-boxes"), digitLength);
   focusDigitBox(0);
-
   showScreen("secret");
-  playTurn();
+  sfxTurn();
 });
 
-// ── Set Secret ──────────────────────────────────────────────────────────────
+// ── Lock Secret ─────────────────────────────────────────────────────────────
 
 $("#btn-secret").addEventListener("click", () => {
   const secret = $("#input-secret").value.trim();
   if (secret.length !== currentDigitLength || !/^\d+$/.test(secret)) {
     showToast(`Enter exactly ${currentDigitLength} digits.`);
-    playError();
-    const boxes = document.querySelectorAll("#secret-digit-boxes .digit-box");
-    boxes.forEach((b) => {
+    sfxError();
+    $$("#secret-digit-boxes .digit-box").forEach(b => {
       b.classList.add("error-shake");
-      setTimeout(() => b.classList.remove("error-shake"), 500);
+      setTimeout(() => b.classList.remove("error-shake"), 400);
     });
     return;
   }
   socket.emit("set-secret", { secret });
-  playSuccess();
+  sfxSuccess();
 });
 
 socket.on("secret-accepted", () => {
@@ -592,11 +365,9 @@ socket.on("secret-accepted", () => {
   $("#btn-secret").classList.add("hidden");
   $("#input-secret").disabled = true;
   $("#secret-waiting").classList.remove("hidden");
-
-  const boxes = document.querySelectorAll("#secret-digit-boxes .digit-box");
-  boxes.forEach((b) => {
+  $$("#secret-digit-boxes .digit-box").forEach(b => {
     b.style.pointerEvents = "none";
-    b.style.opacity = "0.6";
+    b.style.opacity = "0.5";
   });
 });
 
@@ -616,50 +387,45 @@ socket.on("game-playing", ({ yourName, opponentName, digitLength, isYourTurn, yo
   updateTurn(isYourTurn);
   showScreen("game");
   if (isYourTurn) $("#input-guess").focus();
-
-  burstParticles(window.innerWidth / 2, window.innerHeight / 3, 25, "rgba(124, 92, 252, 0.5)");
-  playTurn();
+  sfxTurn();
 });
 
 function updateTurn(isYourTurn) {
   const badge = $("#turn-indicator");
-  const guessInput = $("#input-guess");
-  const guessBtn = $("#btn-guess");
-
+  const gi = $("#input-guess");
+  const gb = $("#btn-guess");
   if (isYourTurn) {
-    badge.textContent = "Your Turn";
+    badge.textContent = "YOUR TURN";
     badge.className = "turn-badge your-turn";
-    guessInput.disabled = false;
-    guessBtn.disabled = false;
-    guessInput.focus();
+    gi.disabled = false;
+    gb.disabled = false;
+    gi.focus();
   } else {
-    badge.textContent = "Opponent's Turn";
+    badge.textContent = "OPPONENT'S TURN";
     badge.className = "turn-badge their-turn";
-    guessInput.disabled = true;
-    guessBtn.disabled = true;
+    gi.disabled = true;
+    gb.disabled = true;
   }
 }
 
-// ── Make Guess ───────────────────────────────────────────────────────────────
+// ── Guessing ────────────────────────────────────────────────────────────────
 
 function submitGuess() {
   const guess = $("#input-guess").value.trim();
   if (guess.length !== currentDigitLength || !/^\d+$/.test(guess)) {
     showToast(`Enter exactly ${currentDigitLength} digits.`);
-    playError();
-    $("#input-guess").parentElement.classList.add("shake");
-    setTimeout(() => $("#input-guess").parentElement.classList.remove("shake"), 500);
+    sfxError();
+    $(".input-row").classList.add("shake");
+    setTimeout(() => $(".input-row").classList.remove("shake"), 400);
     return;
   }
   socket.emit("make-guess", { guess });
   $("#input-guess").value = "";
-  playGuess();
+  sfxGuess();
 }
 
 $("#btn-guess").addEventListener("click", submitGuess);
-$("#input-guess").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") submitGuess();
-});
+$("#input-guess").addEventListener("keydown", e => { if (e.key === "Enter") submitGuess(); });
 
 // ── Guess Result ────────────────────────────────────────────────────────────
 
@@ -667,48 +433,52 @@ socket.on("guess-result", ({ isYourTurn, yourGuesses, opponentGuesses }) => {
   renderGuesses($("#your-guesses"), yourGuesses, true);
   renderGuesses($("#opponent-guesses"), opponentGuesses, true);
   updateTurn(isYourTurn);
-
-  if (isYourTurn) playTurn();
-
-  const lastGuess = yourGuesses[yourGuesses.length - 1];
-  if (lastGuess && lastGuess.positionsCorrect > 0) {
-    const centerX = window.innerWidth / 2;
-    const centerY = window.innerHeight / 2;
-    burstParticles(centerX, centerY, lastGuess.positionsCorrect * 5, "rgba(0, 212, 170, 0.5)");
-  }
+  if (isYourTurn) sfxTurn();
 });
 
 // ── Game Over ───────────────────────────────────────────────────────────────
 
 socket.on("game-over", ({ winnerName, youWon, yourSecret, opponentSecret, yourGuesses, opponentGuesses }) => {
+  const icon = $("#gameover-icon");
+  const title = $("#gameover-title");
+  const panel = $(".gameover-panel");
+
   if (youWon) {
-    $("#gameover-icon").textContent = "🏆";
-    $("#gameover-title").textContent = "You Won!";
-    $("#gameover-subtitle").textContent = `You cracked it in ${yourGuesses.length} guess${yourGuesses.length !== 1 ? "es" : ""}!`;
-
+    icon.textContent = "ACCESS GRANTED";
+    icon.className = "go-icon win-icon";
+    icon.style.color = "var(--green)";
+    icon.style.fontSize = "1.1rem";
+    icon.style.letterSpacing = "0.25em";
+    icon.style.fontWeight = "700";
+    title.textContent = "CODE CRACKED";
+    title.className = "go-title win-text";
+    $("#gameover-subtitle").textContent = `Breached in ${yourGuesses.length} attempt${yourGuesses.length !== 1 ? "s" : ""}.`;
     launchConfetti();
-    playWin();
-
-    const card = $(".gameover-card");
-    card.classList.add("win-glow");
-    setTimeout(() => card.classList.remove("win-glow"), 8000);
-
-    burstParticles(window.innerWidth / 2, window.innerHeight / 3, 60, "rgba(0, 212, 170, 0.6)");
-    setTimeout(() => burstParticles(window.innerWidth / 3, window.innerHeight / 2, 40, "rgba(124, 92, 252, 0.5)"), 300);
-    setTimeout(() => burstParticles(window.innerWidth * 0.7, window.innerHeight / 2, 40, "rgba(255, 196, 77, 0.5)"), 600);
+    sfxWin();
+    panel.classList.add("win-glow");
+    setTimeout(() => panel.classList.remove("win-glow"), 6000);
   } else {
-    $("#gameover-icon").textContent = "😔";
-    $("#gameover-title").textContent = `${winnerName} Won!`;
-    $("#gameover-subtitle").textContent = `They cracked your number in ${opponentGuesses.length} guess${opponentGuesses.length !== 1 ? "es" : ""}.`;
-    playLose();
-
-    const card = $(".gameover-card");
-    card.classList.add("shake");
-    setTimeout(() => card.classList.remove("shake"), 500);
+    icon.textContent = "ACCESS DENIED";
+    icon.className = "go-icon lose-icon";
+    icon.style.color = "var(--red)";
+    icon.style.fontSize = "1.1rem";
+    icon.style.letterSpacing = "0.25em";
+    icon.style.fontWeight = "700";
+    title.textContent = `${winnerName} CRACKED IT`;
+    title.className = "go-title lose-text";
+    $("#gameover-subtitle").textContent = `They breached your code in ${opponentGuesses.length} attempt${opponentGuesses.length !== 1 ? "s" : ""}.`;
+    sfxLose();
+    panel.classList.add("red-flash");
+    setTimeout(() => panel.classList.remove("red-flash"), 400);
   }
 
-  $("#reveal-yours").textContent = yourSecret;
-  $("#reveal-theirs").textContent = opponentSecret;
+  const yv = $("#reveal-yours");
+  const tv = $("#reveal-theirs");
+  yv.textContent = yourSecret;
+  tv.textContent = opponentSecret;
+  yv.classList.add("revealed");
+  tv.classList.add("revealed");
+  setTimeout(() => { yv.classList.remove("revealed"); tv.classList.remove("revealed"); }, 600);
 
   renderGuesses($("#go-your-guesses"), yourGuesses, false);
   renderGuesses($("#go-opponent-guesses"), opponentGuesses, false);
@@ -716,7 +486,6 @@ socket.on("game-over", ({ winnerName, youWon, yourSecret, opponentSecret, yourGu
   $("#btn-rematch").disabled = false;
   $("#btn-rematch").classList.remove("hidden");
   $("#rematch-waiting").classList.add("hidden");
-
   showScreen("gameover");
 });
 
@@ -724,7 +493,7 @@ socket.on("game-over", ({ winnerName, youWon, yourSecret, opponentSecret, yourGu
 
 $("#btn-rematch").addEventListener("click", () => {
   socket.emit("play-again");
-  playClick();
+  sfxClick();
 });
 
 socket.on("waiting-for-rematch", () => {
@@ -736,30 +505,24 @@ socket.on("waiting-for-rematch", () => {
 // ── Opponent Left ───────────────────────────────────────────────────────────
 
 socket.on("opponent-left", ({ name }) => {
-  showToast(`${name} left the game.`);
+  showToast(`${name} disconnected.`);
   $("#input-secret").disabled = false;
   $("#input-guess").disabled = false;
   $("#btn-guess").disabled = false;
   showScreen("lobby");
-  playError();
+  sfxError();
 });
 
 // ── Errors ──────────────────────────────────────────────────────────────────
 
-socket.on("error-msg", (msg) => {
-  showToast(msg);
-  playError();
-});
+socket.on("error-msg", (msg) => { showToast(msg); sfxError(); });
 
-// ── Enter Key on Lobby Inputs ───────────────────────────────────────────────
+// ── Keyboard Shortcuts ──────────────────────────────────────────────────────
 
-$("#input-code").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") $("#btn-join").click();
-});
-
-$("#input-name").addEventListener("keydown", (e) => {
+$("#input-code").addEventListener("keydown", e => { if (e.key === "Enter") $("#btn-join").click(); });
+$("#input-name").addEventListener("keydown", e => {
   if (e.key === "Enter") {
-    const activeTab = document.querySelector(".tab.active");
-    if (activeTab.dataset.tab === "create") $("#btn-create").click();
+    const t = document.querySelector(".tab.active");
+    if (t.dataset.tab === "create") $("#btn-create").click();
   }
 });
