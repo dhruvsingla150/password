@@ -593,6 +593,16 @@ select option {
   font-weight: 700;
 }
 
+/* ── Turn Row (badge + timer) ─────────────────────── */
+
+.turn-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
 /* ── Turn Badge ───────────────────────────────────── */
 
 .turn-badge {
@@ -600,7 +610,6 @@ select option {
   padding: 0.3rem 1rem;
   font-size: 0.65rem;
   font-weight: 700;
-  margin-top: 0.5rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   border: 1px solid;
@@ -632,34 +641,34 @@ select option {
   align-items: center;
   justify-content: center;
   position: relative;
-  width: 48px;
-  height: 48px;
-  margin-top: 0.6rem;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
 }
 
 .timer-ring {
-  width: 48px;
-  height: 48px;
+  width: 34px;
+  height: 34px;
   transform: rotate(-90deg);
 }
 
 .timer-track {
   fill: none;
   stroke: var(--border);
-  stroke-width: 2.5;
+  stroke-width: 3;
 }
 
 .timer-fill {
   fill: none;
   stroke: var(--green);
-  stroke-width: 2.5;
+  stroke-width: 3;
   stroke-linecap: butt;
   transition: stroke-dashoffset 0.9s linear, stroke 0.3s;
 }
 
 .timer-value {
   position: absolute;
-  font-size: 0.85rem;
+  font-size: 0.7rem;
   font-weight: 700;
   font-family: var(--mono);
   color: var(--text-bright);
