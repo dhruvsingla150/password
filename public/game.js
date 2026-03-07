@@ -12,6 +12,8 @@ const screens = {
 
 let currentDigitLength = 4;
 let currentTurnTime = 0;
+let currentRoomCode = null;
+let playerName = null;
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  CURSOR SPOTLIGHT
@@ -305,6 +307,8 @@ $("#btn-join").addEventListener("click", () => {
   const code = $("#input-code").value.trim();
   if (!name) { showToast("Agent ID required."); sfxError(); return; }
   if (!code) { showToast("Access code required."); sfxError(); return; }
+  playerName = name;
+  currentRoomCode = code.toUpperCase().trim();
   socket.emit("join-room", { code, name });
   sfxClick();
 });
@@ -314,6 +318,8 @@ $("#btn-join").addEventListener("click", () => {
 socket.on("room-created", ({ code, digitLength, turnTime }) => {
   currentDigitLength = digitLength;
   currentTurnTime = turnTime || 0;
+  currentRoomCode = code;
+  playerName = $("#input-name").value.trim();
   animateRoomCode(code);
   showScreen("waiting");
   sfxSuccess();
@@ -449,28 +455,52 @@ socket.on("guess-result", ({ isYourTurn, yourGuesses, opponentGuesses }) => {
 // ── Timer ────────────────────────────────────────────────────────────────────
 
 const TIMER_CIRCUMFERENCE = 2 * Math.PI * 16;
+let clientTimerInterval = null;
+let clientTimeLeft = 0;
 
-function updateTimerDisplay(timeLeft, turnTime) {
+function renderTimer(timeLeft, turnTime) {
   if (!turnTime || turnTime <= 0) return;
   const el = $("#timer-value");
   const fill = $("#timer-fill");
-  el.textContent = timeLeft;
+  const clamped = Math.max(0, timeLeft);
+  el.textContent = clamped;
 
-  const fraction = timeLeft / turnTime;
+  const fraction = clamped / turnTime;
   fill.style.strokeDasharray = `${TIMER_CIRCUMFERENCE}`;
   fill.style.strokeDashoffset = `${TIMER_CIRCUMFERENCE * (1 - fraction)}`;
 
   const timerEl = $("#turn-timer");
-  timerEl.classList.toggle("timer-warning", timeLeft <= 5 && timeLeft > 0);
-  timerEl.classList.toggle("timer-danger", timeLeft <= 0);
+  timerEl.classList.toggle("timer-warning", clamped <= 5 && clamped > 0);
+  timerEl.classList.toggle("timer-danger", clamped <= 0);
 
-  if (timeLeft <= 5 && timeLeft > 0) {
-    playTone(800 + (5 - timeLeft) * 80, 0.05, "square", 0.03);
+  if (clamped <= 5 && clamped > 0) {
+    playTone(800 + (5 - clamped) * 80, 0.05, "square", 0.03);
+  }
+}
+
+function startClientTimer(timeLeft, turnTime) {
+  stopClientTimer();
+  clientTimeLeft = timeLeft;
+  renderTimer(clientTimeLeft, turnTime);
+
+  clientTimerInterval = setInterval(() => {
+    clientTimeLeft--;
+    renderTimer(clientTimeLeft, turnTime);
+    if (clientTimeLeft <= 0) stopClientTimer();
+  }, 1000);
+}
+
+function stopClientTimer() {
+  if (clientTimerInterval) {
+    clearInterval(clientTimerInterval);
+    clientTimerInterval = null;
   }
 }
 
 socket.on("timer-tick", ({ timeLeft, turnTime }) => {
-  updateTimerDisplay(timeLeft, turnTime);
+  if (Math.abs(clientTimeLeft - timeLeft) > 1 || !clientTimerInterval) {
+    startClientTimer(timeLeft, turnTime);
+  }
 });
 
 socket.on("turn-skipped", ({ isYourTurn, yourGuesses, opponentGuesses, skippedPlayerId }) => {
@@ -531,6 +561,7 @@ socket.on("game-over", ({ winnerName, youWon, yourSecret, opponentSecret, yourGu
   tv.classList.add("revealed");
   setTimeout(() => { yv.classList.remove("revealed"); tv.classList.remove("revealed"); }, 600);
 
+  stopClientTimer();
   $("#turn-timer").classList.add("hidden");
 
   renderGuesses($("#go-your-guesses"), yourGuesses, false);
@@ -559,6 +590,9 @@ socket.on("waiting-for-rematch", () => {
 
 socket.on("opponent-left", ({ name }) => {
   showToast(`${name} disconnected.`);
+  stopClientTimer();
+  currentRoomCode = null;
+  playerName = null;
   $("#turn-timer").classList.add("hidden");
   $("#input-secret").disabled = false;
   $("#input-guess").disabled = false;
@@ -570,6 +604,74 @@ socket.on("opponent-left", ({ name }) => {
 // ── Errors ──────────────────────────────────────────────────────────────────
 
 socket.on("error-msg", (msg) => { showToast(msg); sfxError(); });
+
+// ── Reconnect Handling ───────────────────────────────────────────────────────
+
+socket.on("connect", () => {
+  if (currentRoomCode && playerName) {
+    socket.emit("rejoin-room", { code: currentRoomCode, name: playerName });
+  }
+});
+
+socket.on("rejoin-state", (state) => {
+  currentDigitLength = state.digitLength;
+  currentTurnTime = state.turnTime || 0;
+  currentRoomCode = state.code;
+
+  if (state.phase === "waiting") {
+    animateRoomCode(state.code);
+    showScreen("waiting");
+  } else if (state.phase === "setting") {
+    $("#digit-count-label").textContent = state.digitLength;
+    $("#input-secret").maxLength = state.digitLength;
+
+    if (state.yourSecretSet) {
+      $("#input-secret").disabled = true;
+      $("#btn-secret").disabled = true;
+      $("#btn-secret").classList.add("hidden");
+      $("#secret-waiting").classList.remove("hidden");
+    } else {
+      $("#input-secret").value = "";
+      $("#input-secret").disabled = false;
+      $("#btn-secret").disabled = false;
+      $("#btn-secret").classList.remove("hidden");
+      $("#secret-waiting").classList.add("hidden");
+      createDigitBoxes($("#secret-digit-boxes"), state.digitLength);
+      focusDigitBox(0);
+    }
+    showScreen("secret");
+  } else if (state.phase === "playing") {
+    $("#game-title").textContent = `${state.yourName} vs ${state.opponentName}`;
+    $("#game-your-secret").textContent = state.yourSecret;
+    $("#input-guess").maxLength = state.digitLength;
+    $("#input-guess").placeholder = "0".repeat(state.digitLength);
+    $("#input-guess").value = "";
+
+    if (currentTurnTime > 0) {
+      $("#turn-timer").classList.remove("hidden");
+      startClientTimer(state.timeLeft, currentTurnTime);
+    } else {
+      $("#turn-timer").classList.add("hidden");
+    }
+
+    renderGuesses($("#your-guesses"), state.yourGuesses, false);
+    renderGuesses($("#opponent-guesses"), state.opponentGuesses, false);
+    updateTurn(state.isYourTurn);
+    showScreen("game");
+  } else if (state.phase === "finished") {
+    stopClientTimer();
+    $("#turn-timer").classList.add("hidden");
+    showScreen("gameover");
+  }
+});
+
+socket.on("rejoin-failed", () => {
+  currentRoomCode = null;
+  playerName = null;
+  stopClientTimer();
+  $("#turn-timer").classList.add("hidden");
+  showScreen("lobby");
+});
 
 // ── Keyboard Shortcuts ──────────────────────────────────────────────────────
 

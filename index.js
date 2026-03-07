@@ -168,6 +168,63 @@ io.on("connection", (socket) => {
     });
   });
 
+  socket.on("rejoin-room", ({ code, name }) => {
+    const roomCode = code.toUpperCase().trim();
+    const room = rooms.get(roomCode);
+
+    if (!room) {
+      socket.emit("rejoin-failed");
+      return;
+    }
+
+    const player = room.players.find((p) => p.name === name);
+    if (!player) {
+      socket.emit("rejoin-failed");
+      return;
+    }
+
+    if (room._reconnectTimers && room._reconnectTimers[name]) {
+      clearTimeout(room._reconnectTimers[name]);
+      delete room._reconnectTimers[name];
+    }
+    delete player.disconnectedAt;
+
+    const oldId = player.id;
+    if (oldId !== socket.id) {
+      room.guesses[socket.id] = room.guesses[oldId] || [];
+      delete room.guesses[oldId];
+      player.id = socket.id;
+      if (room.turn === oldId) room.turn = socket.id;
+      if (room.winner === oldId) room.winner = socket.id;
+    }
+
+    socket.join(roomCode);
+    currentRoom = roomCode;
+
+    if (room.phase === "playing" && room.turnTime > 0 && room.timeLeft > 0) {
+      startTurnTimer(room);
+    }
+
+    const opponent = room.players.find((p) => p.id !== socket.id);
+    const myGuesses = room.guesses[socket.id] || [];
+    const opponentGuesses = opponent ? (room.guesses[opponent.id] || []) : [];
+
+    socket.emit("rejoin-state", {
+      code: roomCode,
+      phase: room.phase,
+      digitLength: room.digitLength,
+      turnTime: room.turnTime,
+      timeLeft: room.timeLeft || 0,
+      yourName: player.name,
+      opponentName: opponent ? opponent.name : null,
+      yourSecret: player.secret,
+      yourSecretSet: player.ready,
+      isYourTurn: room.turn === socket.id,
+      yourGuesses: myGuesses,
+      opponentGuesses: opponentGuesses,
+    });
+  });
+
   socket.on("set-secret", ({ secret }) => {
     if (!currentRoom) return;
     const room = rooms.get(currentRoom);
@@ -309,25 +366,57 @@ io.on("connection", (socket) => {
     const room = rooms.get(currentRoom);
     if (!room) return;
 
-    clearTurnTimer(room);
-
     const player = room.players.find((p) => p.id === socket.id);
-    const playerName = player ? player.name : "Opponent";
+    const pName = player ? player.name : "Opponent";
 
-    room.players = room.players.filter((p) => p.id !== socket.id);
+    if (room.phase === "playing" || room.phase === "setting") {
+      clearTurnTimer(room);
 
-    if (room.players.length === 0) {
-      rooms.delete(currentRoom);
+      if (player) player.disconnectedAt = Date.now();
+
+      const reconnectTimeout = setTimeout(() => {
+        const r = rooms.get(currentRoom);
+        if (!r) return;
+        const p = r.players.find((pl) => pl.name === pName);
+        if (!p || !p.disconnectedAt) return;
+
+        r.players = r.players.filter((pl) => pl.name !== pName);
+        delete r.guesses[p.id];
+
+        if (r.players.length === 0) {
+          rooms.delete(currentRoom);
+        } else {
+          io.to(currentRoom).emit("opponent-left", { name: pName });
+          r.phase = "waiting";
+          r.winner = null;
+          r.turn = null;
+          r.players.forEach((pl) => {
+            pl.secret = null;
+            pl.ready = false;
+            r.guesses[pl.id] = [];
+          });
+        }
+      }, 15000);
+
+      if (!room._reconnectTimers) room._reconnectTimers = {};
+      room._reconnectTimers[pName] = reconnectTimeout;
     } else {
-      io.to(currentRoom).emit("opponent-left", { name: playerName });
-      room.phase = "waiting";
-      room.winner = null;
-      room.turn = null;
-      room.players.forEach((p) => {
-        p.secret = null;
-        p.ready = false;
-        room.guesses[p.id] = [];
-      });
+      room.players = room.players.filter((p) => p.id !== socket.id);
+      delete room.guesses[socket.id];
+
+      if (room.players.length === 0) {
+        rooms.delete(currentRoom);
+      } else {
+        io.to(currentRoom).emit("opponent-left", { name: pName });
+        room.phase = "waiting";
+        room.winner = null;
+        room.turn = null;
+        room.players.forEach((p) => {
+          p.secret = null;
+          p.ready = false;
+          room.guesses[p.id] = [];
+        });
+      }
     }
   });
 });
