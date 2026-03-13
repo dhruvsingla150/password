@@ -16,6 +16,52 @@ let currentRoomCode = null;
 let playerName = null;
 
 // ══════════════════════════════════════════════════════════════════════════════
+//  SCRATCHPAD / NOTES
+// ══════════════════════════════════════════════════════════════════════════════
+
+function getNotesKey() {
+  return currentRoomCode ? `crackr_notes_${currentRoomCode}` : null;
+}
+
+function saveNotes() {
+  const key = getNotesKey();
+  if (!key) return;
+  const text = $("#notes-textarea").value;
+  try { localStorage.setItem(key, text); } catch (_) {}
+}
+
+function loadNotes() {
+  const key = getNotesKey();
+  if (!key) return;
+  try {
+    $("#notes-textarea").value = localStorage.getItem(key) || "";
+  } catch (_) {
+    $("#notes-textarea").value = "";
+  }
+}
+
+function clearNotesStorage() {
+  const key = getNotesKey();
+  if (!key) return;
+  try { localStorage.removeItem(key); } catch (_) {}
+}
+
+(function initNotes() {
+  const toggle = $("#notes-toggle");
+  const body = $("#notes-body");
+  const textarea = $("#notes-textarea");
+
+  toggle.addEventListener("click", () => {
+    const isOpen = body.classList.toggle("open");
+    toggle.classList.toggle("active", isOpen);
+    if (isOpen) textarea.focus();
+    sfxClick();
+  });
+
+  textarea.addEventListener("input", saveNotes);
+})();
+
+// ══════════════════════════════════════════════════════════════════════════════
 //  CURSOR SPOTLIGHT
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -402,6 +448,7 @@ socket.on("game-playing", ({ yourName, opponentName, digitLength, isYourTurn, yo
 
   updateTurn(isYourTurn);
   showScreen("game");
+  loadNotes();
   if (isYourTurn) $("#input-guess").focus();
   sfxTurn();
 });
@@ -591,6 +638,7 @@ socket.on("waiting-for-rematch", () => {
 socket.on("opponent-left", ({ name }) => {
   showToast(`${name} disconnected.`);
   stopClientTimer();
+  clearNotesStorage();
   currentRoomCode = null;
   playerName = null;
   $("#turn-timer").classList.add("hidden");
@@ -658,6 +706,7 @@ socket.on("rejoin-state", (state) => {
     renderGuesses($("#opponent-guesses"), state.opponentGuesses, false);
     updateTurn(state.isYourTurn);
     showScreen("game");
+    loadNotes();
   } else if (state.phase === "finished") {
     stopClientTimer();
     $("#turn-timer").classList.add("hidden");
@@ -666,6 +715,7 @@ socket.on("rejoin-state", (state) => {
 });
 
 socket.on("rejoin-failed", () => {
+  clearNotesStorage();
   currentRoomCode = null;
   playerName = null;
   stopClientTimer();
