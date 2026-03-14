@@ -1132,6 +1132,135 @@ select option {
   animation: digitShake 0.4s ease;
 }
 
+/* ── Breach Transition Overlay ─────────────────────── */
+
+.breach-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.breach-overlay.hidden {
+  display: none !important;
+}
+
+#breach-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.breach-text-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 210;
+  pointer-events: none;
+}
+
+.breach-status {
+  font-family: var(--mono);
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: var(--amber);
+  text-shadow: 0 0 30px rgba(212, 160, 23, 0.6), 0 0 60px rgba(212, 160, 23, 0.3);
+  opacity: 0;
+  transform: scale(0.5);
+  transition: none;
+}
+
+.breach-status.visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.breach-status.glitch-text {
+  animation: breachGlitch 0.15s infinite;
+}
+
+.breach-status.slam {
+  animation: breachSlam 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.breach-status.final-slam {
+  font-size: 2.4rem;
+  color: var(--green);
+  text-shadow: 0 0 40px rgba(39, 174, 96, 0.8), 0 0 80px rgba(39, 174, 96, 0.4), 0 0 120px rgba(39, 174, 96, 0.2);
+  animation: breachFinalSlam 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.breach-counter {
+  font-family: var(--display);
+  font-size: 8rem;
+  font-weight: 400;
+  color: var(--text-bright);
+  text-shadow: 0 0 40px rgba(240, 240, 240, 0.4);
+  opacity: 0;
+  margin-top: 1rem;
+}
+
+.breach-counter.visible {
+  opacity: 1;
+  animation: counterPulse 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.breach-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 220;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.breach-flash.fire {
+  animation: breachFlash 0.4s ease-out forwards;
+  background: radial-gradient(circle at center, rgba(212, 160, 23, 0.8), rgba(39, 174, 96, 0.4), transparent 70%);
+}
+
+@keyframes breachGlitch {
+  0% { transform: translate(0, 0) skewX(0deg); }
+  20% { transform: translate(-3px, 2px) skewX(-2deg); }
+  40% { transform: translate(4px, -1px) skewX(3deg); }
+  60% { transform: translate(-2px, -3px) skewX(-1deg); }
+  80% { transform: translate(3px, 1px) skewX(2deg); }
+  100% { transform: translate(0, 0) skewX(0deg); }
+}
+
+@keyframes breachSlam {
+  0% { opacity: 0; transform: scale(3) rotate(-5deg); filter: blur(10px); }
+  60% { opacity: 1; transform: scale(0.9) rotate(1deg); filter: blur(0); }
+  80% { transform: scale(1.05) rotate(-0.5deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0deg); filter: blur(0); }
+}
+
+@keyframes breachFinalSlam {
+  0% { opacity: 0; transform: scale(5); filter: blur(20px); }
+  50% { opacity: 1; transform: scale(0.85); filter: blur(0); }
+  70% { transform: scale(1.1); }
+  100% { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+
+@keyframes counterPulse {
+  0% { transform: scale(2.5); opacity: 0; filter: blur(8px); }
+  60% { transform: scale(0.9); opacity: 1; filter: blur(0); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes breachFlash {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 /* ── Hidden ────────────────────────────────────────── */
 
 .hidden { display: none !important; }

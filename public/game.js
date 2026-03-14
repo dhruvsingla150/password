@@ -82,6 +82,431 @@ function syncNotes(source, target) {
 })();
 
 // ══════════════════════════════════════════════════════════════════════════════
+//  BREACH TRANSITION ANIMATION
+// ══════════════════════════════════════════════════════════════════════════════
+
+const breachOverlay = $("#breach-overlay");
+const breachCanvas = $("#breach-canvas");
+const bCtx = breachCanvas.getContext("2d");
+const breachStatus = $("#breach-status");
+const breachCounter = $("#breach-counter");
+const breachFlash = $("#breach-flash");
+
+function resizeBreachCanvas() {
+  breachCanvas.width = window.innerWidth;
+  breachCanvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resizeBreachCanvas);
+
+function playBreachAnimation() {
+  return new Promise((resolve) => {
+    resizeBreachCanvas();
+    breachOverlay.classList.remove("hidden");
+    breachStatus.textContent = "";
+    breachStatus.className = "breach-status";
+    breachCounter.textContent = "";
+    breachCounter.className = "breach-counter";
+    breachFlash.className = "breach-flash";
+
+    const W = breachCanvas.width;
+    const H = breachCanvas.height;
+    const cx = W / 2;
+    const cy = H / 2;
+
+    const TOTAL_DURATION = 4200;
+    const PHASE_WARP = 0;
+    const PHASE_RAIN = 1200;
+    const PHASE_GRID = 2200;
+    const PHASE_SLAM = 3200;
+    const PHASE_END = 3900;
+
+    let startTime = null;
+    let animId = null;
+
+    // ── Warp Stars ──────────────────────────────────
+    const stars = [];
+    for (let i = 0; i < 500; i++) {
+      stars.push({
+        x: (Math.random() - 0.5) * W * 3,
+        y: (Math.random() - 0.5) * H * 3,
+        z: Math.random() * 1500 + 200,
+        pz: 0,
+        size: Math.random() * 2 + 0.5,
+      });
+    }
+
+    // ── Matrix Rain Columns ─────────────────────────
+    const FONT_SIZE = 14;
+    const cols = Math.ceil(W / FONT_SIZE);
+    const rainDrops = new Array(cols).fill(0);
+    const rainChars = [];
+    const matrixChars = "01アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン";
+    for (let i = 0; i < cols; i++) {
+      rainDrops[i] = Math.random() * -50;
+      rainChars[i] = [];
+    }
+
+    // ── Grid Blocks ─────────────────────────────────
+    const blocks = [];
+    for (let i = 0; i < 80; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * 400 + 200;
+      blocks.push({
+        x: Math.cos(angle) * dist,
+        y: Math.sin(angle) * dist,
+        z: Math.random() * 2000 + 500,
+        w: Math.random() * 60 + 20,
+        h: Math.random() * 60 + 20,
+        speed: Math.random() * 15 + 8,
+        char: matrixChars[Math.floor(Math.random() * matrixChars.length)],
+        color: Math.random() > 0.5 ? "#d4a017" : "#27ae60",
+        rotation: Math.random() * Math.PI * 2,
+        rotSpeed: (Math.random() - 0.5) * 0.1,
+      });
+    }
+
+    // ── Shockwave Ring ──────────────────────────────
+    let shockRadius = 0;
+    let shockOpacity = 0;
+
+    // ── Hexagonal Grid Lines ────────────────────────
+    const hexLines = [];
+    for (let i = 0; i < 30; i++) {
+      const angle = (i / 30) * Math.PI * 2;
+      hexLines.push({
+        angle,
+        length: 0,
+        maxLength: Math.random() * 300 + 200,
+        speed: Math.random() * 8 + 4,
+        opacity: 0,
+      });
+    }
+
+    // ── Particle Burst ──────────────────────────────
+    const burstParticles = [];
+    for (let i = 0; i < 200; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 12 + 3;
+      burstParticles.push({
+        x: cx, y: cy,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: Math.random() * 3 + 1,
+        life: 1,
+        decay: Math.random() * 0.02 + 0.01,
+        color: ["#d4a017", "#27ae60", "#f0f0f0", "#c0392b"][Math.floor(Math.random() * 4)],
+      });
+    }
+
+    let slamShown = false;
+    let finalShown = false;
+    let burstFired = false;
+
+    function render(timestamp) {
+      if (!startTime) startTime = timestamp;
+      const elapsed = timestamp - startTime;
+      const progress = Math.min(elapsed / TOTAL_DURATION, 1);
+
+      bCtx.fillStyle = `rgba(0, 0, 0, ${elapsed < PHASE_RAIN ? 0.15 : 0.12})`;
+      bCtx.fillRect(0, 0, W, H);
+
+      // ── Phase 1: Warp Tunnel ──────────────────────
+      if (elapsed < PHASE_GRID + 400) {
+        const warpSpeed = elapsed < PHASE_RAIN
+          ? 0.5 + (elapsed / PHASE_RAIN) * 15
+          : 15 + ((elapsed - PHASE_RAIN) / 1000) * 5;
+
+        for (const star of stars) {
+          star.pz = star.z;
+          star.z -= warpSpeed;
+
+          if (star.z <= 0) {
+            star.x = (Math.random() - 0.5) * W * 3;
+            star.y = (Math.random() - 0.5) * H * 3;
+            star.z = 1500;
+            star.pz = star.z;
+          }
+
+          const sx = (star.x / star.z) * cx + cx;
+          const sy = (star.y / star.z) * cy + cy;
+          const px = (star.x / star.pz) * cx + cx;
+          const py = (star.y / star.pz) * cy + cy;
+
+          const depth = 1 - star.z / 1500;
+          const brightness = Math.min(1, depth * 2);
+          const streak = Math.min(1, warpSpeed / 15);
+
+          bCtx.beginPath();
+          bCtx.moveTo(px, py);
+          bCtx.lineTo(sx, sy);
+          bCtx.strokeStyle = `rgba(212, 160, 23, ${brightness * 0.8})`;
+          bCtx.lineWidth = star.size * (1 + streak * 2) * depth;
+          bCtx.stroke();
+
+          if (depth > 0.7) {
+            bCtx.beginPath();
+            bCtx.arc(sx, sy, star.size * depth * 2, 0, Math.PI * 2);
+            bCtx.fillStyle = `rgba(240, 240, 240, ${brightness * 0.5})`;
+            bCtx.fill();
+          }
+        }
+
+        if (elapsed > 400) {
+          const tunnelProgress = Math.min((elapsed - 400) / (PHASE_GRID - 400), 1);
+          const numRings = 8;
+          for (let i = 0; i < numRings; i++) {
+            const ringZ = ((i / numRings) + (elapsed * 0.001)) % 1;
+            const ringScale = 1 / (1.01 - ringZ);
+            const ringSize = ringScale * 40;
+            const alpha = ringZ * 0.3 * tunnelProgress;
+
+            bCtx.beginPath();
+            const sides = 6;
+            for (let s = 0; s <= sides; s++) {
+              const angle = (s / sides) * Math.PI * 2 - Math.PI / 6;
+              const hx = cx + Math.cos(angle) * ringSize;
+              const hy = cy + Math.sin(angle) * ringSize;
+              if (s === 0) bCtx.moveTo(hx, hy);
+              else bCtx.lineTo(hx, hy);
+            }
+            bCtx.strokeStyle = `rgba(212, 160, 23, ${alpha})`;
+            bCtx.lineWidth = 1 + ringZ;
+            bCtx.stroke();
+          }
+        }
+      }
+
+      // ── Phase 2: Matrix Rain ──────────────────────
+      if (elapsed >= PHASE_RAIN && elapsed < PHASE_SLAM + 300) {
+        const rainAlpha = Math.min(1, (elapsed - PHASE_RAIN) / 500);
+        bCtx.font = `${FONT_SIZE}px monospace`;
+
+        for (let i = 0; i < cols; i++) {
+          const char = matrixChars[Math.floor(Math.random() * matrixChars.length)];
+          const x = i * FONT_SIZE;
+          const y = rainDrops[i] * FONT_SIZE;
+
+          if (y > 0 && y < H) {
+            const headGlow = Math.random() > 0.7;
+            bCtx.fillStyle = headGlow
+              ? `rgba(240, 240, 240, ${rainAlpha * 0.9})`
+              : `rgba(39, 174, 96, ${rainAlpha * (0.4 + Math.random() * 0.4)})`;
+            bCtx.fillText(char, x, y);
+
+            if (headGlow) {
+              bCtx.shadowColor = "#27ae60";
+              bCtx.shadowBlur = 8;
+              bCtx.fillStyle = `rgba(39, 174, 96, ${rainAlpha})`;
+              bCtx.fillText(char, x, y);
+              bCtx.shadowBlur = 0;
+            }
+          }
+
+          rainDrops[i] += 0.6 + Math.random() * 0.4;
+          if (rainDrops[i] * FONT_SIZE > H && Math.random() > 0.975) {
+            rainDrops[i] = Math.random() * -10;
+          }
+        }
+
+        if (Math.random() > 0.92) {
+          const glitchY = Math.random() * H;
+          const glitchH = Math.random() * 20 + 5;
+          const glitchShift = (Math.random() - 0.5) * 30;
+          const imgData = bCtx.getImageData(0, glitchY, W, glitchH);
+          bCtx.putImageData(imgData, glitchShift, glitchY + (Math.random() - 0.5) * 5);
+        }
+      }
+
+      // ── Phase 3: Grid Blocks Flying At You ────────
+      if (elapsed >= PHASE_GRID && elapsed < PHASE_END) {
+        const blockAlpha = Math.min(1, (elapsed - PHASE_GRID) / 300);
+
+        for (const block of blocks) {
+          block.z -= block.speed;
+          block.rotation += block.rotSpeed;
+
+          if (block.z <= 1) {
+            block.z = 2000;
+            block.x = (Math.random() - 0.5) * 800;
+            block.y = (Math.random() - 0.5) * 800;
+          }
+
+          const scale = 400 / block.z;
+          const sx = block.x * scale + cx;
+          const sy = block.y * scale + cy;
+          const sw = block.w * scale;
+          const sh = block.h * scale;
+
+          if (sx < -100 || sx > W + 100 || sy < -100 || sy > H + 100) continue;
+
+          const depth = 1 - block.z / 2000;
+
+          bCtx.save();
+          bCtx.translate(sx, sy);
+          bCtx.rotate(block.rotation);
+          bCtx.globalAlpha = depth * blockAlpha * 0.7;
+
+          bCtx.strokeStyle = block.color;
+          bCtx.lineWidth = 1 + depth;
+          bCtx.strokeRect(-sw / 2, -sh / 2, sw, sh);
+
+          const cornerSize = Math.min(sw, sh) * 0.3;
+          bCtx.strokeStyle = block.color;
+          bCtx.lineWidth = 2;
+          bCtx.beginPath();
+          bCtx.moveTo(-sw / 2, -sh / 2 + cornerSize);
+          bCtx.lineTo(-sw / 2, -sh / 2);
+          bCtx.lineTo(-sw / 2 + cornerSize, -sh / 2);
+          bCtx.stroke();
+          bCtx.beginPath();
+          bCtx.moveTo(sw / 2 - cornerSize, -sh / 2);
+          bCtx.lineTo(sw / 2, -sh / 2);
+          bCtx.lineTo(sw / 2, -sh / 2 + cornerSize);
+          bCtx.stroke();
+          bCtx.beginPath();
+          bCtx.moveTo(sw / 2, sh / 2 - cornerSize);
+          bCtx.lineTo(sw / 2, sh / 2);
+          bCtx.lineTo(sw / 2 - cornerSize, sh / 2);
+          bCtx.stroke();
+          bCtx.beginPath();
+          bCtx.moveTo(-sw / 2 + cornerSize, sh / 2);
+          bCtx.lineTo(-sw / 2, sh / 2);
+          bCtx.lineTo(-sw / 2, sh / 2 - cornerSize);
+          bCtx.stroke();
+
+          if (depth > 0.3 && sw > 15) {
+            bCtx.font = `${Math.max(10, sw * 0.4)}px monospace`;
+            bCtx.fillStyle = block.color;
+            bCtx.textAlign = "center";
+            bCtx.textBaseline = "middle";
+            bCtx.fillText(block.char, 0, 0);
+          }
+
+          bCtx.restore();
+        }
+
+        for (const line of hexLines) {
+          if (elapsed >= PHASE_GRID + 200) {
+            line.length = Math.min(line.maxLength, line.length + line.speed);
+            line.opacity = Math.min(0.4, line.opacity + 0.02);
+          }
+          const ex = cx + Math.cos(line.angle) * line.length;
+          const ey = cy + Math.sin(line.angle) * line.length;
+          bCtx.beginPath();
+          bCtx.moveTo(cx, cy);
+          bCtx.lineTo(ex, ey);
+          bCtx.strokeStyle = `rgba(212, 160, 23, ${line.opacity})`;
+          bCtx.lineWidth = 1;
+          bCtx.stroke();
+
+          if (line.length > 50) {
+            bCtx.beginPath();
+            bCtx.arc(ex, ey, 2, 0, Math.PI * 2);
+            bCtx.fillStyle = `rgba(212, 160, 23, ${line.opacity * 2})`;
+            bCtx.fill();
+          }
+        }
+      }
+
+      // ── Phase 4: Slam Text + Shockwave ────────────
+      if (elapsed >= PHASE_SLAM && !slamShown) {
+        slamShown = true;
+        breachStatus.textContent = "BREACH INITIATED";
+        breachStatus.className = "breach-status slam";
+        sfxBreachSlam();
+
+        shockRadius = 0;
+        shockOpacity = 1;
+      }
+
+      if (elapsed >= PHASE_SLAM && elapsed < PHASE_END) {
+        const shockProgress = (elapsed - PHASE_SLAM) / (PHASE_END - PHASE_SLAM);
+        shockRadius = shockProgress * Math.max(W, H) * 0.8;
+        shockOpacity = 1 - shockProgress;
+
+        bCtx.beginPath();
+        bCtx.arc(cx, cy, shockRadius, 0, Math.PI * 2);
+        bCtx.strokeStyle = `rgba(212, 160, 23, ${shockOpacity * 0.6})`;
+        bCtx.lineWidth = 3 + (1 - shockProgress) * 5;
+        bCtx.stroke();
+
+        bCtx.beginPath();
+        bCtx.arc(cx, cy, shockRadius * 0.85, 0, Math.PI * 2);
+        bCtx.strokeStyle = `rgba(39, 174, 96, ${shockOpacity * 0.3})`;
+        bCtx.lineWidth = 2;
+        bCtx.stroke();
+
+        if (elapsed >= PHASE_SLAM + 100 && elapsed < PHASE_SLAM + 300) {
+          breachStatus.classList.add("glitch-text");
+        } else {
+          breachStatus.classList.remove("glitch-text");
+        }
+      }
+
+      // ── Phase 5: Final Text + Burst + Flash ───────
+      if (elapsed >= PHASE_END && !finalShown) {
+        finalShown = true;
+        breachStatus.textContent = "COMMENCE";
+        breachStatus.className = "breach-status final-slam";
+        breachFlash.className = "breach-flash fire";
+        sfxBreachFinal();
+        burstFired = true;
+      }
+
+      if (burstFired) {
+        for (const p of burstParticles) {
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vx *= 0.97;
+          p.vy *= 0.97;
+          p.life -= p.decay;
+
+          if (p.life > 0) {
+            bCtx.beginPath();
+            bCtx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+            bCtx.fillStyle = p.color;
+            bCtx.globalAlpha = p.life;
+            bCtx.fill();
+            bCtx.globalAlpha = 1;
+          }
+        }
+      }
+
+      // ── Scanline effect over everything ───────────
+      if (elapsed > 200) {
+        for (let y = 0; y < H; y += 3) {
+          bCtx.fillStyle = `rgba(0, 0, 0, 0.08)`;
+          bCtx.fillRect(0, y, W, 1);
+        }
+      }
+
+      // ── Vignette ──────────────────────────────────
+      const vigGrad = bCtx.createRadialGradient(cx, cy, H * 0.3, cx, cy, H * 0.9);
+      vigGrad.addColorStop(0, "transparent");
+      vigGrad.addColorStop(1, "rgba(0, 0, 0, 0.5)");
+      bCtx.fillStyle = vigGrad;
+      bCtx.fillRect(0, 0, W, H);
+
+      if (elapsed < TOTAL_DURATION) {
+        animId = requestAnimationFrame(render);
+      } else {
+        cancelAnimationFrame(animId);
+        breachOverlay.classList.add("hidden");
+        breachStatus.className = "breach-status";
+        breachCounter.className = "breach-counter";
+        breachFlash.className = "breach-flash";
+        bCtx.clearRect(0, 0, W, H);
+        resolve();
+      }
+    }
+
+    bCtx.fillStyle = "#000";
+    bCtx.fillRect(0, 0, W, H);
+    animId = requestAnimationFrame(render);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 //  CURSOR SPOTLIGHT
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -204,6 +629,97 @@ function sfxGuess() { playTone(350, 0.06, "sine", 0.04); }
 function sfxTurn() {
   playTone(550, 0.08, "sine", 0.05);
   setTimeout(() => playTone(740, 0.1, "sine", 0.05), 60);
+}
+
+function sfxBreachWarp() {
+  if (!soundEnabled) return;
+  try {
+    const ctx = getAudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(80, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 1.2);
+    gain.gain.setValueAtTime(0.06, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.5);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 1.5);
+
+    const noise = ctx.createOscillator();
+    const noiseGain = ctx.createGain();
+    noise.type = "sawtooth";
+    noise.frequency.setValueAtTime(40, ctx.currentTime);
+    noise.frequency.linearRampToValueAtTime(200, ctx.currentTime + 1.0);
+    noiseGain.gain.setValueAtTime(0.03, ctx.currentTime);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2);
+    noise.connect(noiseGain);
+    noiseGain.connect(ctx.destination);
+    noise.start();
+    noise.stop(ctx.currentTime + 1.2);
+  } catch (_) {}
+}
+
+function sfxBreachSlam() {
+  if (!soundEnabled) return;
+  try {
+    const ctx = getAudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(200, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(60, ctx.currentTime + 0.3);
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.5);
+
+    const hit = ctx.createOscillator();
+    const hitGain = ctx.createGain();
+    hit.type = "sine";
+    hit.frequency.setValueAtTime(800, ctx.currentTime);
+    hit.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.15);
+    hitGain.gain.setValueAtTime(0.1, ctx.currentTime);
+    hitGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+    hit.connect(hitGain);
+    hitGain.connect(ctx.destination);
+    hit.start();
+    hit.stop(ctx.currentTime + 0.2);
+  } catch (_) {}
+}
+
+function sfxBreachFinal() {
+  if (!soundEnabled) return;
+  try {
+    const ctx = getAudioCtx();
+    [200, 400, 600, 800].forEach((f, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(f, ctx.currentTime + i * 0.04);
+      gain.gain.setValueAtTime(0.08, ctx.currentTime + i * 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.04 + 0.3);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime + i * 0.04);
+      osc.stop(ctx.currentTime + i * 0.04 + 0.3);
+    });
+
+    const boom = ctx.createOscillator();
+    const boomGain = ctx.createGain();
+    boom.type = "sawtooth";
+    boom.frequency.setValueAtTime(100, ctx.currentTime);
+    boom.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + 0.4);
+    boomGain.gain.setValueAtTime(0.1, ctx.currentTime);
+    boomGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+    boom.connect(boomGain);
+    boomGain.connect(ctx.destination);
+    boom.start();
+    boom.stop(ctx.currentTime + 0.5);
+  } catch (_) {}
 }
 
 $("#sound-toggle").addEventListener("click", () => {
@@ -468,7 +984,7 @@ socket.on("waiting-for-opponent-secret", () => {});
 
 // ── Game Playing ────────────────────────────────────────────────────────────
 
-socket.on("game-playing", ({ yourName, opponentName, digitLength, isYourTurn, yourSecret, turnTime }) => {
+socket.on("game-playing", async ({ yourName, opponentName, digitLength, isYourTurn, yourSecret, turnTime }) => {
   currentDigitLength = digitLength;
   currentTurnTime = turnTime || 0;
   $("#game-title").textContent = `${yourName} vs ${opponentName}`;
@@ -484,6 +1000,9 @@ socket.on("game-playing", ({ yourName, opponentName, digitLength, isYourTurn, yo
   } else {
     $("#turn-timer").classList.add("hidden");
   }
+
+  sfxBreachWarp();
+  await playBreachAnimation();
 
   updateTurn(isYourTurn);
   showScreen("game");
