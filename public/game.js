@@ -102,6 +102,7 @@ function playBreachAnimation() {
   return new Promise((resolve) => {
     resizeBreachCanvas();
     breachOverlay.classList.remove("hidden");
+    breachOverlay.style.opacity = "1";
     breachStatus.textContent = "";
     breachStatus.className = "breach-status";
     breachCounter.textContent = "";
@@ -113,19 +114,24 @@ function playBreachAnimation() {
     const cx = W / 2;
     const cy = H / 2;
 
-    const TOTAL_DURATION = 4200;
-    const PHASE_WARP = 0;
-    const PHASE_RAIN = 1200;
-    const PHASE_GRID = 2200;
-    const PHASE_SLAM = 3200;
-    const PHASE_END = 3900;
+    // The lock is drawn relative to a "unit size" so it scales to any screen
+    const lockScale = Math.min(W, H) * 0.0028;
+
+    const TOTAL_DURATION = 5400;
+    const PHASE_WARP_END = 1800;
+    const PHASE_LOCK_APPEAR = 1400;
+    const PHASE_LOCK_SLAM = 2600;
+    const PHASE_SHOCKWAVE = 2600;
+    const PHASE_TEXT = 3200;
+    const PHASE_HOLD = 4200;
+    const PHASE_FADEOUT = 4400;
 
     let startTime = null;
     let animId = null;
 
     // ── Warp Stars ──────────────────────────────────
     const stars = [];
-    for (let i = 0; i < 500; i++) {
+    for (let i = 0; i < 400; i++) {
       stars.push({
         x: (Math.random() - 0.5) * W * 3,
         y: (Math.random() - 0.5) * H * 3,
@@ -135,86 +141,210 @@ function playBreachAnimation() {
       });
     }
 
-    // ── Matrix Rain Columns ─────────────────────────
-    const FONT_SIZE = 14;
-    const cols = Math.ceil(W / FONT_SIZE);
-    const rainDrops = new Array(cols).fill(0);
-    const rainChars = [];
-    const matrixChars = "01アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン";
-    for (let i = 0; i < cols; i++) {
-      rainDrops[i] = Math.random() * -50;
-      rainChars[i] = [];
-    }
-
-    // ── Grid Blocks ─────────────────────────────────
-    const blocks = [];
-    for (let i = 0; i < 80; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = Math.random() * 400 + 200;
-      blocks.push({
-        x: Math.cos(angle) * dist,
-        y: Math.sin(angle) * dist,
-        z: Math.random() * 2000 + 500,
-        w: Math.random() * 60 + 20,
-        h: Math.random() * 60 + 20,
-        speed: Math.random() * 15 + 8,
-        char: matrixChars[Math.floor(Math.random() * matrixChars.length)],
-        color: Math.random() > 0.5 ? "#d4a017" : "#27ae60",
-        rotation: Math.random() * Math.PI * 2,
-        rotSpeed: (Math.random() - 0.5) * 0.1,
-      });
-    }
-
-    // ── Shockwave Ring ──────────────────────────────
-    let shockRadius = 0;
-    let shockOpacity = 0;
-
-    // ── Hexagonal Grid Lines ────────────────────────
-    const hexLines = [];
-    for (let i = 0; i < 30; i++) {
-      const angle = (i / 30) * Math.PI * 2;
-      hexLines.push({
-        angle,
-        length: 0,
-        maxLength: Math.random() * 300 + 200,
-        speed: Math.random() * 8 + 4,
-        opacity: 0,
-      });
-    }
-
-    // ── Particle Burst ──────────────────────────────
+    // ── Particle Burst (fired on lock slam) ─────────
     const burstParticles = [];
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < 150; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const speed = Math.random() * 12 + 3;
+      const speed = Math.random() * 10 + 2;
       burstParticles.push({
         x: cx, y: cy,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
         size: Math.random() * 3 + 1,
         life: 1,
-        decay: Math.random() * 0.02 + 0.01,
-        color: ["#d4a017", "#27ae60", "#f0f0f0", "#c0392b"][Math.floor(Math.random() * 4)],
+        decay: Math.random() * 0.015 + 0.008,
+        color: ["#d4a017", "#27ae60", "#f0f0f0"][Math.floor(Math.random() * 3)],
       });
     }
 
-    let slamShown = false;
-    let finalShown = false;
+    // ── Radial Lines (burst outward on slam) ────────
+    const radialLines = [];
+    for (let i = 0; i < 24; i++) {
+      radialLines.push({
+        angle: (i / 24) * Math.PI * 2,
+        length: 0,
+        maxLength: Math.random() * 250 + 150,
+        speed: Math.random() * 10 + 6,
+      });
+    }
+
+    // ── Floating Code Fragments ─────────────────────
+    const codeFragments = [];
+    const fragTexts = [
+      "0x4F2A", "ENCRYPT", "SHA-256", ">>KEY",
+      "AUTH_OK", "0xFFFF", "LOCKED", "HASH>>",
+      "AES-128", "RSA2048", "VERIFY", "SEALED",
+      "0xDEAD", "CIPHER", "ACCESS", "BLOCK",
+    ];
+    for (let i = 0; i < 30; i++) {
+      codeFragments.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        text: fragTexts[Math.floor(Math.random() * fragTexts.length)],
+        vx: (Math.random() - 0.5) * 0.5,
+        vy: (Math.random() - 0.5) * 0.5,
+        alpha: 0,
+        targetAlpha: Math.random() * 0.3 + 0.05,
+        size: Math.random() * 4 + 8,
+      });
+    }
+
+    let lockSlamDone = false;
     let burstFired = false;
+    let textShown = false;
+    let screenShake = 0;
+
+    function easeOutBack(t) {
+      const c1 = 1.70158;
+      const c3 = c1 + 1;
+      return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+    }
+
+    function easeOutElastic(t) {
+      if (t === 0 || t === 1) return t;
+      return Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * (2 * Math.PI) / 3) + 1;
+    }
+
+    function drawLock(lockCx, lockCy, scale, shackleOpen) {
+      // shackleOpen: 1 = fully open (rotated up-left), 0 = fully closed
+      const s = scale;
+      const bodyW = 60 * s;
+      const bodyH = 50 * s;
+      const bodyR = 6 * s;
+      const bodyTop = lockCy;
+      const bodyLeft = lockCx - bodyW / 2;
+
+      // Lock body
+      bCtx.beginPath();
+      bCtx.moveTo(bodyLeft + bodyR, bodyTop);
+      bCtx.lineTo(bodyLeft + bodyW - bodyR, bodyTop);
+      bCtx.quadraticCurveTo(bodyLeft + bodyW, bodyTop, bodyLeft + bodyW, bodyTop + bodyR);
+      bCtx.lineTo(bodyLeft + bodyW, bodyTop + bodyH - bodyR);
+      bCtx.quadraticCurveTo(bodyLeft + bodyW, bodyTop + bodyH, bodyLeft + bodyW - bodyR, bodyTop + bodyH);
+      bCtx.lineTo(bodyLeft + bodyR, bodyTop + bodyH);
+      bCtx.quadraticCurveTo(bodyLeft, bodyTop + bodyH, bodyLeft, bodyTop + bodyH - bodyR);
+      bCtx.lineTo(bodyLeft, bodyTop + bodyR);
+      bCtx.quadraticCurveTo(bodyLeft, bodyTop, bodyLeft + bodyR, bodyTop);
+      bCtx.closePath();
+
+      const bodyGrad = bCtx.createLinearGradient(bodyLeft, bodyTop, bodyLeft, bodyTop + bodyH);
+      bodyGrad.addColorStop(0, "#2a2a2a");
+      bodyGrad.addColorStop(0.5, "#1a1a1a");
+      bodyGrad.addColorStop(1, "#111111");
+      bCtx.fillStyle = bodyGrad;
+      bCtx.fill();
+      bCtx.strokeStyle = "#d4a017";
+      bCtx.lineWidth = 2 * s;
+      bCtx.stroke();
+
+      // Inner border highlight
+      bCtx.beginPath();
+      const inset = 4 * s;
+      bCtx.rect(bodyLeft + inset, bodyTop + inset, bodyW - inset * 2, bodyH - inset * 2);
+      bCtx.strokeStyle = "rgba(212, 160, 23, 0.15)";
+      bCtx.lineWidth = 1 * s;
+      bCtx.stroke();
+
+      // Keyhole
+      const khCx = lockCx;
+      const khCy = bodyTop + bodyH * 0.45;
+      const khR = 7 * s;
+      bCtx.beginPath();
+      bCtx.arc(khCx, khCy, khR, 0, Math.PI * 2);
+      bCtx.fillStyle = "#d4a017";
+      bCtx.fill();
+      bCtx.beginPath();
+      bCtx.moveTo(khCx - 4 * s, khCy + khR * 0.6);
+      bCtx.lineTo(khCx, khCy + bodyH * 0.45);
+      bCtx.lineTo(khCx + 4 * s, khCy + khR * 0.6);
+      bCtx.closePath();
+      bCtx.fillStyle = "#d4a017";
+      bCtx.fill();
+
+      // Shackle
+      const shackleW = 36 * s;
+      const shackleH = 34 * s;
+      const shackleThick = 8 * s;
+      const shacklePivotX = lockCx + shackleW / 2;
+      const shacklePivotY = bodyTop;
+
+      bCtx.save();
+      if (shackleOpen > 0.01) {
+        bCtx.translate(shacklePivotX, shacklePivotY);
+        bCtx.rotate(-shackleOpen * 0.6);
+        bCtx.translate(-shacklePivotX, -shacklePivotY);
+      }
+
+      bCtx.beginPath();
+      const sLeft = lockCx - shackleW / 2;
+      const sBottom = bodyTop + 2 * s;
+      bCtx.moveTo(sLeft, sBottom);
+      bCtx.lineTo(sLeft, sBottom - shackleH + shackleW / 2);
+      bCtx.arc(lockCx, sBottom - shackleH + shackleW / 2, shackleW / 2, Math.PI, 0, false);
+      bCtx.lineTo(sLeft + shackleW, sBottom);
+
+      bCtx.moveTo(sLeft + shackleW - shackleThick, sBottom);
+      bCtx.lineTo(sLeft + shackleW - shackleThick, sBottom - shackleH + shackleW / 2);
+      bCtx.arc(lockCx, sBottom - shackleH + shackleW / 2, shackleW / 2 - shackleThick, 0, Math.PI, true);
+      bCtx.lineTo(sLeft + shackleThick, sBottom);
+
+      const shackleGrad = bCtx.createLinearGradient(sLeft, sBottom - shackleH, sLeft + shackleW, sBottom);
+      shackleGrad.addColorStop(0, "#444");
+      shackleGrad.addColorStop(0.5, "#888");
+      shackleGrad.addColorStop(1, "#555");
+      bCtx.fillStyle = shackleGrad;
+      bCtx.fill();
+      bCtx.strokeStyle = "#d4a017";
+      bCtx.lineWidth = 1.5 * s;
+      bCtx.stroke();
+
+      bCtx.restore();
+    }
 
     function render(timestamp) {
       if (!startTime) startTime = timestamp;
       const elapsed = timestamp - startTime;
-      const progress = Math.min(elapsed / TOTAL_DURATION, 1);
 
-      bCtx.fillStyle = `rgba(0, 0, 0, ${elapsed < PHASE_RAIN ? 0.15 : 0.12})`;
-      bCtx.fillRect(0, 0, W, H);
+      // Screen shake offset
+      let shakeX = 0, shakeY = 0;
+      if (screenShake > 0) {
+        shakeX = (Math.random() - 0.5) * screenShake;
+        shakeY = (Math.random() - 0.5) * screenShake;
+        screenShake *= 0.9;
+        if (screenShake < 0.5) screenShake = 0;
+      }
+
+      bCtx.save();
+      bCtx.translate(shakeX, shakeY);
+
+      bCtx.fillStyle = "rgba(0, 0, 0, 0.18)";
+      bCtx.fillRect(-10, -10, W + 20, H + 20);
+
+      // ── Floating Code Fragments ───────────────────
+      if (elapsed > 200 && elapsed < PHASE_HOLD) {
+        const fragTarget = elapsed < PHASE_LOCK_SLAM ? 1 : Math.max(0, 1 - (elapsed - PHASE_LOCK_SLAM) / 800);
+        bCtx.font = `11px monospace`;
+        for (const frag of codeFragments) {
+          frag.x += frag.vx;
+          frag.y += frag.vy;
+          if (frag.x < 0 || frag.x > W) frag.vx *= -1;
+          if (frag.y < 0 || frag.y > H) frag.vy *= -1;
+          frag.alpha += (frag.targetAlpha * fragTarget - frag.alpha) * 0.05;
+          if (frag.alpha > 0.01) {
+            bCtx.globalAlpha = frag.alpha;
+            bCtx.fillStyle = "#d4a017";
+            bCtx.fillText(frag.text, frag.x, frag.y);
+            bCtx.globalAlpha = 1;
+          }
+        }
+      }
 
       // ── Phase 1: Warp Tunnel ──────────────────────
-      if (elapsed < PHASE_GRID + 400) {
-        const warpSpeed = elapsed < PHASE_RAIN
-          ? 0.5 + (elapsed / PHASE_RAIN) * 15
-          : 15 + ((elapsed - PHASE_RAIN) / 1000) * 5;
+      if (elapsed < PHASE_WARP_END + 600) {
+        const fadeOut = elapsed > PHASE_WARP_END
+          ? Math.max(0, 1 - (elapsed - PHASE_WARP_END) / 600)
+          : 1;
+        const warpSpeed = 0.5 + Math.min(elapsed / PHASE_WARP_END, 1) * 18;
 
         for (const star of stars) {
           star.pz = star.z;
@@ -233,7 +363,7 @@ function playBreachAnimation() {
           const py = (star.y / star.pz) * cy + cy;
 
           const depth = 1 - star.z / 1500;
-          const brightness = Math.min(1, depth * 2);
+          const brightness = Math.min(1, depth * 2) * fadeOut;
           const streak = Math.min(1, warpSpeed / 15);
 
           bCtx.beginPath();
@@ -246,19 +376,20 @@ function playBreachAnimation() {
           if (depth > 0.7) {
             bCtx.beginPath();
             bCtx.arc(sx, sy, star.size * depth * 2, 0, Math.PI * 2);
-            bCtx.fillStyle = `rgba(240, 240, 240, ${brightness * 0.5})`;
+            bCtx.fillStyle = `rgba(240, 240, 240, ${brightness * 0.4})`;
             bCtx.fill();
           }
         }
 
-        if (elapsed > 400) {
-          const tunnelProgress = Math.min((elapsed - 400) / (PHASE_GRID - 400), 1);
+        // Hexagonal tunnel rings
+        if (elapsed > 300) {
+          const tunnelAlpha = Math.min(1, (elapsed - 300) / 500) * fadeOut;
           const numRings = 8;
           for (let i = 0; i < numRings; i++) {
-            const ringZ = ((i / numRings) + (elapsed * 0.001)) % 1;
+            const ringZ = ((i / numRings) + (elapsed * 0.0012)) % 1;
             const ringScale = 1 / (1.01 - ringZ);
             const ringSize = ringScale * 40;
-            const alpha = ringZ * 0.3 * tunnelProgress;
+            const alpha = ringZ * 0.25 * tunnelAlpha;
 
             bCtx.beginPath();
             const sides = 6;
@@ -276,207 +407,136 @@ function playBreachAnimation() {
         }
       }
 
-      // ── Phase 2: Matrix Rain ──────────────────────
-      if (elapsed >= PHASE_RAIN && elapsed < PHASE_SLAM + 300) {
-        const rainAlpha = Math.min(1, (elapsed - PHASE_RAIN) / 500);
-        bCtx.font = `${FONT_SIZE}px monospace`;
+      // ── Phase 2: Lock Appears (open) ──────────────
+      if (elapsed >= PHASE_LOCK_APPEAR && elapsed < PHASE_FADEOUT + 1000) {
+        let lockAlpha, lockDrawScale, shackleOpen;
 
-        for (let i = 0; i < cols; i++) {
-          const char = matrixChars[Math.floor(Math.random() * matrixChars.length)];
-          const x = i * FONT_SIZE;
-          const y = rainDrops[i] * FONT_SIZE;
+        if (elapsed < PHASE_LOCK_SLAM) {
+          // Lock fading in, open position
+          const t = (elapsed - PHASE_LOCK_APPEAR) / (PHASE_LOCK_SLAM - PHASE_LOCK_APPEAR);
+          lockAlpha = Math.min(1, t * 1.5);
+          lockDrawScale = lockScale * (0.6 + easeOutBack(Math.min(t, 1)) * 0.4);
+          shackleOpen = 1;
+        } else {
+          // Lock slams shut
+          const slamDur = 250;
+          const t = Math.min((elapsed - PHASE_LOCK_SLAM) / slamDur, 1);
+          lockAlpha = 1;
+          lockDrawScale = lockScale * (1 + (1 - t) * 0.05);
+          shackleOpen = Math.max(0, 1 - easeOutElastic(t));
 
-          if (y > 0 && y < H) {
-            const headGlow = Math.random() > 0.7;
-            bCtx.fillStyle = headGlow
-              ? `rgba(240, 240, 240, ${rainAlpha * 0.9})`
-              : `rgba(39, 174, 96, ${rainAlpha * (0.4 + Math.random() * 0.4)})`;
-            bCtx.fillText(char, x, y);
-
-            if (headGlow) {
-              bCtx.shadowColor = "#27ae60";
-              bCtx.shadowBlur = 8;
-              bCtx.fillStyle = `rgba(39, 174, 96, ${rainAlpha})`;
-              bCtx.fillText(char, x, y);
-              bCtx.shadowBlur = 0;
-            }
-          }
-
-          rainDrops[i] += 0.6 + Math.random() * 0.4;
-          if (rainDrops[i] * FONT_SIZE > H && Math.random() > 0.975) {
-            rainDrops[i] = Math.random() * -10;
+          if (!lockSlamDone && t >= 0.95) {
+            lockSlamDone = true;
+            screenShake = 18;
+            burstFired = true;
+            sfxBreachSlam();
           }
         }
 
-        if (Math.random() > 0.92) {
-          const glitchY = Math.random() * H;
-          const glitchH = Math.random() * 20 + 5;
-          const glitchShift = (Math.random() - 0.5) * 30;
-          const imgData = bCtx.getImageData(0, glitchY, W, glitchH);
-          bCtx.putImageData(imgData, glitchShift, glitchY + (Math.random() - 0.5) * 5);
+        // Pulsing glow behind the lock
+        if (elapsed >= PHASE_LOCK_SLAM) {
+          const pulseT = ((elapsed - PHASE_LOCK_SLAM) % 1500) / 1500;
+          const pulseR = 80 * lockScale + Math.sin(pulseT * Math.PI * 2) * 15 * lockScale;
+          const glowGrad = bCtx.createRadialGradient(cx, cy + 25 * lockScale, 0, cx, cy + 25 * lockScale, pulseR);
+          glowGrad.addColorStop(0, `rgba(212, 160, 23, ${0.15 * lockAlpha})`);
+          glowGrad.addColorStop(1, "transparent");
+          bCtx.fillStyle = glowGrad;
+          bCtx.fillRect(cx - pulseR, cy + 25 * lockScale - pulseR, pulseR * 2, pulseR * 2);
         }
+
+        bCtx.globalAlpha = lockAlpha;
+        drawLock(cx, cy, lockDrawScale, shackleOpen);
+        bCtx.globalAlpha = 1;
       }
 
-      // ── Phase 3: Grid Blocks Flying At You ────────
-      if (elapsed >= PHASE_GRID && elapsed < PHASE_END) {
-        const blockAlpha = Math.min(1, (elapsed - PHASE_GRID) / 300);
-
-        for (const block of blocks) {
-          block.z -= block.speed;
-          block.rotation += block.rotSpeed;
-
-          if (block.z <= 1) {
-            block.z = 2000;
-            block.x = (Math.random() - 0.5) * 800;
-            block.y = (Math.random() - 0.5) * 800;
-          }
-
-          const scale = 400 / block.z;
-          const sx = block.x * scale + cx;
-          const sy = block.y * scale + cy;
-          const sw = block.w * scale;
-          const sh = block.h * scale;
-
-          if (sx < -100 || sx > W + 100 || sy < -100 || sy > H + 100) continue;
-
-          const depth = 1 - block.z / 2000;
-
-          bCtx.save();
-          bCtx.translate(sx, sy);
-          bCtx.rotate(block.rotation);
-          bCtx.globalAlpha = depth * blockAlpha * 0.7;
-
-          bCtx.strokeStyle = block.color;
-          bCtx.lineWidth = 1 + depth;
-          bCtx.strokeRect(-sw / 2, -sh / 2, sw, sh);
-
-          const cornerSize = Math.min(sw, sh) * 0.3;
-          bCtx.strokeStyle = block.color;
-          bCtx.lineWidth = 2;
-          bCtx.beginPath();
-          bCtx.moveTo(-sw / 2, -sh / 2 + cornerSize);
-          bCtx.lineTo(-sw / 2, -sh / 2);
-          bCtx.lineTo(-sw / 2 + cornerSize, -sh / 2);
-          bCtx.stroke();
-          bCtx.beginPath();
-          bCtx.moveTo(sw / 2 - cornerSize, -sh / 2);
-          bCtx.lineTo(sw / 2, -sh / 2);
-          bCtx.lineTo(sw / 2, -sh / 2 + cornerSize);
-          bCtx.stroke();
-          bCtx.beginPath();
-          bCtx.moveTo(sw / 2, sh / 2 - cornerSize);
-          bCtx.lineTo(sw / 2, sh / 2);
-          bCtx.lineTo(sw / 2 - cornerSize, sh / 2);
-          bCtx.stroke();
-          bCtx.beginPath();
-          bCtx.moveTo(-sw / 2 + cornerSize, sh / 2);
-          bCtx.lineTo(-sw / 2, sh / 2);
-          bCtx.lineTo(-sw / 2, sh / 2 - cornerSize);
-          bCtx.stroke();
-
-          if (depth > 0.3 && sw > 15) {
-            bCtx.font = `${Math.max(10, sw * 0.4)}px monospace`;
-            bCtx.fillStyle = block.color;
-            bCtx.textAlign = "center";
-            bCtx.textBaseline = "middle";
-            bCtx.fillText(block.char, 0, 0);
-          }
-
-          bCtx.restore();
-        }
-
-        for (const line of hexLines) {
-          if (elapsed >= PHASE_GRID + 200) {
-            line.length = Math.min(line.maxLength, line.length + line.speed);
-            line.opacity = Math.min(0.4, line.opacity + 0.02);
-          }
-          const ex = cx + Math.cos(line.angle) * line.length;
-          const ey = cy + Math.sin(line.angle) * line.length;
-          bCtx.beginPath();
-          bCtx.moveTo(cx, cy);
-          bCtx.lineTo(ex, ey);
-          bCtx.strokeStyle = `rgba(212, 160, 23, ${line.opacity})`;
-          bCtx.lineWidth = 1;
-          bCtx.stroke();
-
-          if (line.length > 50) {
-            bCtx.beginPath();
-            bCtx.arc(ex, ey, 2, 0, Math.PI * 2);
-            bCtx.fillStyle = `rgba(212, 160, 23, ${line.opacity * 2})`;
-            bCtx.fill();
-          }
-        }
-      }
-
-      // ── Phase 4: Slam Text + Shockwave ────────────
-      if (elapsed >= PHASE_SLAM && !slamShown) {
-        slamShown = true;
-        breachStatus.textContent = "BREACH INITIATED";
-        breachStatus.className = "breach-status slam";
-        sfxBreachSlam();
-
-        shockRadius = 0;
-        shockOpacity = 1;
-      }
-
-      if (elapsed >= PHASE_SLAM && elapsed < PHASE_END) {
-        const shockProgress = (elapsed - PHASE_SLAM) / (PHASE_END - PHASE_SLAM);
-        shockRadius = shockProgress * Math.max(W, H) * 0.8;
-        shockOpacity = 1 - shockProgress;
+      // ── Shockwave on slam ─────────────────────────
+      if (elapsed >= PHASE_SHOCKWAVE && elapsed < PHASE_SHOCKWAVE + 800) {
+        const t = (elapsed - PHASE_SHOCKWAVE) / 800;
+        const radius = t * Math.max(W, H) * 0.6;
+        const alpha = (1 - t) * 0.5;
 
         bCtx.beginPath();
-        bCtx.arc(cx, cy, shockRadius, 0, Math.PI * 2);
-        bCtx.strokeStyle = `rgba(212, 160, 23, ${shockOpacity * 0.6})`;
-        bCtx.lineWidth = 3 + (1 - shockProgress) * 5;
+        bCtx.arc(cx, cy + 25 * lockScale, radius, 0, Math.PI * 2);
+        bCtx.strokeStyle = `rgba(212, 160, 23, ${alpha})`;
+        bCtx.lineWidth = 3 + (1 - t) * 6;
         bCtx.stroke();
 
         bCtx.beginPath();
-        bCtx.arc(cx, cy, shockRadius * 0.85, 0, Math.PI * 2);
-        bCtx.strokeStyle = `rgba(39, 174, 96, ${shockOpacity * 0.3})`;
+        bCtx.arc(cx, cy + 25 * lockScale, radius * 0.7, 0, Math.PI * 2);
+        bCtx.strokeStyle = `rgba(39, 174, 96, ${alpha * 0.5})`;
         bCtx.lineWidth = 2;
         bCtx.stroke();
+      }
 
-        if (elapsed >= PHASE_SLAM + 100 && elapsed < PHASE_SLAM + 300) {
-          breachStatus.classList.add("glitch-text");
-        } else {
-          breachStatus.classList.remove("glitch-text");
+      // ── Radial Lines on slam ──────────────────────
+      if (burstFired && elapsed < PHASE_TEXT + 400) {
+        for (const line of radialLines) {
+          line.length = Math.min(line.maxLength, line.length + line.speed);
+          const lineAlpha = Math.max(0, 1 - line.length / line.maxLength) * 0.5;
+          const ex = cx + Math.cos(line.angle) * line.length;
+          const ey = cy + 25 * lockScale + Math.sin(line.angle) * line.length;
+          bCtx.beginPath();
+          bCtx.moveTo(cx, cy + 25 * lockScale);
+          bCtx.lineTo(ex, ey);
+          bCtx.strokeStyle = `rgba(212, 160, 23, ${lineAlpha})`;
+          bCtx.lineWidth = 1.5;
+          bCtx.stroke();
         }
       }
 
-      // ── Phase 5: Final Text + Burst + Flash ───────
-      if (elapsed >= PHASE_END && !finalShown) {
-        finalShown = true;
-        breachStatus.textContent = "COMMENCE";
-        breachStatus.className = "breach-status final-slam";
-        breachFlash.className = "breach-flash fire";
-        sfxBreachFinal();
-        burstFired = true;
-      }
-
+      // ── Particle Burst ────────────────────────────
       if (burstFired) {
         for (const p of burstParticles) {
           p.x += p.vx;
           p.y += p.vy;
-          p.vx *= 0.97;
-          p.vy *= 0.97;
+          p.vy += 0.05;
+          p.vx *= 0.98;
+          p.vy *= 0.98;
           p.life -= p.decay;
 
           if (p.life > 0) {
             bCtx.beginPath();
             bCtx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
             bCtx.fillStyle = p.color;
-            bCtx.globalAlpha = p.life;
+            bCtx.globalAlpha = p.life * 0.8;
             bCtx.fill();
             bCtx.globalAlpha = 1;
           }
         }
       }
 
-      // ── Scanline effect over everything ───────────
+      // ── "LOCKED" Text ─────────────────────────────
+      if (elapsed >= PHASE_TEXT && !textShown) {
+        textShown = true;
+        breachStatus.textContent = "LOCKED";
+        breachStatus.className = "breach-status slam";
+        sfxBreachFinal();
+      }
+
+      if (textShown && elapsed >= PHASE_TEXT && elapsed < PHASE_TEXT + 400) {
+        if (elapsed < PHASE_TEXT + 200) {
+          breachStatus.classList.add("glitch-text");
+        } else {
+          breachStatus.classList.remove("glitch-text");
+        }
+      }
+
+      // ── Glitch tears ──────────────────────────────
+      if (elapsed >= PHASE_LOCK_SLAM && elapsed < PHASE_LOCK_SLAM + 500 && Math.random() > 0.7) {
+        const glitchY = Math.random() * H;
+        const glitchH = Math.random() * 15 + 3;
+        const glitchShift = (Math.random() - 0.5) * 25;
+        try {
+          const imgData = bCtx.getImageData(0, Math.max(0, glitchY), W, Math.min(glitchH, H - glitchY));
+          bCtx.putImageData(imgData, glitchShift, glitchY);
+        } catch (_) {}
+      }
+
+      // ── Scanlines ─────────────────────────────────
       if (elapsed > 200) {
         for (let y = 0; y < H; y += 3) {
-          bCtx.fillStyle = `rgba(0, 0, 0, 0.08)`;
-          bCtx.fillRect(0, y, W, 1);
+          bCtx.fillStyle = "rgba(0, 0, 0, 0.06)";
+          bCtx.fillRect(-10, y, W + 20, 1);
         }
       }
 
@@ -485,13 +545,22 @@ function playBreachAnimation() {
       vigGrad.addColorStop(0, "transparent");
       vigGrad.addColorStop(1, "rgba(0, 0, 0, 0.5)");
       bCtx.fillStyle = vigGrad;
-      bCtx.fillRect(0, 0, W, H);
+      bCtx.fillRect(-10, -10, W + 20, H + 20);
+
+      bCtx.restore();
+
+      // ── Fade out to game ──────────────────────────
+      if (elapsed >= PHASE_FADEOUT) {
+        const fadeT = Math.min((elapsed - PHASE_FADEOUT) / (TOTAL_DURATION - PHASE_FADEOUT), 1);
+        breachOverlay.style.opacity = String(1 - fadeT);
+      }
 
       if (elapsed < TOTAL_DURATION) {
         animId = requestAnimationFrame(render);
       } else {
         cancelAnimationFrame(animId);
         breachOverlay.classList.add("hidden");
+        breachOverlay.style.opacity = "1";
         breachStatus.className = "breach-status";
         breachCounter.className = "breach-counter";
         breachFlash.className = "breach-flash";
@@ -728,8 +797,327 @@ $("#sound-toggle").addEventListener("click", () => {
   btn.classList.toggle("active", soundEnabled);
   $("#sound-icon-off").style.display = soundEnabled ? "none" : "block";
   $("#sound-icon-on").style.display = soundEnabled ? "block" : "none";
-  if (soundEnabled) { getAudioCtx(); sfxClick(); }
+  if (soundEnabled) { getAudioCtx(); sfxClick(); initVoiceEngine(); }
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  IMMERSIVE VOICE ANNOUNCEMENT SYSTEM
+// ══════════════════════════════════════════════════════════════════════════════
+
+let voiceReady = false;
+let chosenVoice = null;
+let voiceQueue = [];
+let voiceSpeaking = false;
+
+const VOICE_PREFERENCE = [
+  "Google UK English Male",
+  "Google US English",
+  "Microsoft David",
+  "Microsoft Mark",
+  "Daniel",
+  "Alex",
+  "Samantha",
+  "Karen",
+  "Moira",
+  "Tessa",
+];
+
+function pickVoice() {
+  const voices = speechSynthesis.getVoices();
+  if (!voices.length) return null;
+
+  for (const pref of VOICE_PREFERENCE) {
+    const match = voices.find(v => v.name.includes(pref));
+    if (match) return match;
+  }
+
+  const english = voices.filter(v => v.lang.startsWith("en"));
+  const male = english.find(v =>
+    /male|david|mark|daniel|james|alex|tom|guy|george/i.test(v.name)
+  );
+  if (male) return male;
+  if (english.length) return english[0];
+  return voices[0];
+}
+
+function initVoiceEngine() {
+  if (voiceReady) return;
+  if (!window.speechSynthesis) return;
+
+  const tryInit = () => {
+    chosenVoice = pickVoice();
+    if (chosenVoice) {
+      voiceReady = true;
+    }
+  };
+
+  tryInit();
+  if (!voiceReady) {
+    speechSynthesis.onvoiceschanged = () => {
+      tryInit();
+      speechSynthesis.onvoiceschanged = null;
+    };
+  }
+}
+
+function speakLine(text, opts = {}) {
+  if (!soundEnabled || !voiceReady || !window.speechSynthesis) return;
+
+  const {
+    pitch = 0.3,
+    rate = 0.85,
+    volume = 1,
+    delay = 0,
+    priority = false,
+  } = opts;
+
+  const doSpeak = () => {
+    speechSynthesis.cancel();
+
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.voice = chosenVoice;
+    utter.pitch = pitch;
+    utter.rate = rate;
+    utter.volume = volume;
+
+    utter.onend = () => { voiceSpeaking = false; processVoiceQueue(); };
+    utter.onerror = () => { voiceSpeaking = false; processVoiceQueue(); };
+
+    voiceSpeaking = true;
+    speechSynthesis.speak(utter);
+  };
+
+  if (priority) {
+    voiceQueue = [];
+    if (delay > 0) {
+      setTimeout(doSpeak, delay);
+    } else {
+      doSpeak();
+    }
+  } else {
+    voiceQueue.push({ fn: doSpeak, delay });
+    if (!voiceSpeaking) processVoiceQueue();
+  }
+}
+
+function processVoiceQueue() {
+  if (voiceQueue.length === 0) return;
+  const next = voiceQueue.shift();
+  if (next.delay > 0) {
+    setTimeout(next.fn, next.delay);
+  } else {
+    next.fn();
+  }
+}
+
+function pick(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// ── CONTEXTUAL VOICE LINES ──────────────────────────────────────────────────
+
+const VOICE_LINES = {
+  roomCreated: [
+    "Room initialized. Awaiting operative.",
+    "Secure channel open. Standing by.",
+    "Transmission channel active.",
+  ],
+
+  opponentJoined: [
+    "Operative connected. Prepare for engagement.",
+    "Second agent detected. Lock your sequence.",
+    "Connection established. Set your cipher.",
+  ],
+
+  secretLocked: [
+    "Cipher locked. Awaiting opponent.",
+    "Sequence secured.",
+    "Code sealed. Standing by.",
+  ],
+
+  gameStart: [
+    "Breach protocol initiated. Begin decryption.",
+    "All systems engaged. Commence cracking.",
+    "Decryption sequence active. Proceed.",
+  ],
+
+  yourTurn: [
+    "Your move, operative.",
+    "Input your sequence.",
+    "Awaiting your cipher attempt.",
+    "Your turn. Make it count.",
+  ],
+
+  opponentTurn: [
+    "Opponent is decrypting.",
+    "Stand by. Hostile cracking in progress.",
+    "Enemy operative analyzing your cipher.",
+  ],
+
+  guessResult(numbersCorrect, positionsCorrect, digitLength, attemptNum) {
+    const ratio = positionsCorrect / digitLength;
+    const numRatio = numbersCorrect / digitLength;
+
+    if (positionsCorrect === 0 && numbersCorrect === 0) {
+      return pick([
+        "Complete miss. Zero signals detected.",
+        "Nothing. Cold read. Recalibrate.",
+        "Negative on all vectors. Try again.",
+        "Dead frequency. No matches found.",
+      ]);
+    }
+
+    if (positionsCorrect === 0 && numbersCorrect > 0) {
+      if (numRatio >= 0.7) {
+        return pick([
+          `${numbersCorrect} digits confirmed, but all displaced. Rearrange.`,
+          "Right numbers. Wrong slots. Shuffle the sequence.",
+          "The digits are there. The order isn't. Restructure.",
+        ]);
+      }
+      return pick([
+        `${numbersCorrect} signal${numbersCorrect > 1 ? "s" : ""} detected. Positions unknown.`,
+        `Partial frequency match. ${numbersCorrect} digit${numbersCorrect > 1 ? "s" : ""} found.`,
+        "Fragments detected. Keep probing.",
+      ]);
+    }
+
+    if (ratio >= 0.75 && ratio < 1) {
+      return pick([
+        "Almost there. The cipher is cracking.",
+        "Critical proximity. One final push.",
+        `${positionsCorrect} positions locked. Nearly breached.`,
+        "So close. The firewall is failing.",
+      ]);
+    }
+
+    if (ratio >= 0.5) {
+      return pick([
+        `${positionsCorrect} positions locked. Halfway through the firewall.`,
+        "Significant penetration. Continue this vector.",
+        "The pattern is emerging. Press forward.",
+        `Half the cipher decoded. ${digitLength - positionsCorrect} remain.`,
+      ]);
+    }
+
+    if (positionsCorrect > 0) {
+      return pick([
+        `${positionsCorrect} position${positionsCorrect > 1 ? "s" : ""} confirmed. Keep probing.`,
+        "Partial lock achieved. Refine your approach.",
+        `Foothold established. ${positionsCorrect} in position.`,
+      ]);
+    }
+
+    return pick([
+      "Partial signal. Adjust and retry.",
+      "Trace detected. Continue analysis.",
+    ]);
+  },
+
+  opponentGuessReaction(numbersCorrect, positionsCorrect, digitLength) {
+    const ratio = positionsCorrect / digitLength;
+
+    if (positionsCorrect === 0 && numbersCorrect === 0) {
+      return pick([
+        "Opponent missed completely. Your cipher holds.",
+        "Their probe failed. Zero contact.",
+        "Clean deflection. Nothing leaked.",
+      ]);
+    }
+
+    if (ratio >= 0.75) {
+      return pick([
+        "Warning. Opponent approaching critical breach.",
+        "Alert. Your cipher is nearly compromised.",
+        "Hostile operative closing in. Danger level critical.",
+      ]);
+    }
+
+    if (ratio >= 0.5) {
+      return pick([
+        "Caution. Opponent has partial access.",
+        "They're making progress against your defenses.",
+        "Halfway penetration detected on your cipher.",
+      ]);
+    }
+
+    if (positionsCorrect > 0 || numbersCorrect > 0) {
+      return pick([
+        "Minor probe against your cipher.",
+        "They found fragments. Stay vigilant.",
+      ]);
+    }
+
+    return null;
+  },
+
+  timerWarning(secondsLeft) {
+    if (secondsLeft === 5) return pick(["Five seconds.", "Clock's running out."]);
+    if (secondsLeft === 3) return pick(["Three seconds.", "Hurry."]);
+    if (secondsLeft === 1) return "One.";
+    return null;
+  },
+
+  turnSkippedYou: [
+    "Time expired. Turn forfeited.",
+    "Timeout. Opportunity lost.",
+    "Clock ran out. Control transferred.",
+  ],
+
+  turnSkippedOpponent: [
+    "Opponent timed out. Your window is open.",
+    "Enemy hesitated. Seize the advantage.",
+    "Their clock expired. Move now.",
+  ],
+
+  win(attempts) {
+    if (attempts <= 2) {
+      return pick([
+        "Exceptional. Cipher cracked in record time.",
+        "Masterful breach. Nearly instant decryption.",
+        "Impressive. Surgical precision on the cipher.",
+      ]);
+    }
+    if (attempts <= 5) {
+      return pick([
+        "Access granted. Code cracked. Well played, operative.",
+        "Breach successful. Clean operation.",
+        "Cipher broken. Target system compromised.",
+      ]);
+    }
+    return pick([
+      "Access granted. The code is yours.",
+      "Persistence pays. Breach complete.",
+      "System compromised. Mission accomplished.",
+    ]);
+  },
+
+  lose: [
+    "Access denied. Your cipher has been compromised.",
+    "Breach detected. Opponent cracked your defenses.",
+    "System failure. Your code has fallen.",
+    "Security breach. The enemy broke through.",
+  ],
+
+  rematchRequested: [
+    "Rematch signal transmitted.",
+    "Requesting re-engagement.",
+  ],
+
+  opponentLeft: [
+    "Connection severed. Operative has disconnected.",
+    "Signal lost. Agent has left the channel.",
+  ],
+
+  copyCode: [
+    "Access code copied to clipboard.",
+  ],
+
+  errorGeneric: [
+    "Invalid input. Recalibrate.",
+    "Error detected. Correct and retry.",
+  ],
+};
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  DIGIT INPUT BOXES
@@ -911,12 +1299,13 @@ socket.on("room-created", ({ code, digitLength, turnTime }) => {
   animateRoomCode(code);
   showScreen("waiting");
   sfxSuccess();
+  speakLine(pick(VOICE_LINES.roomCreated), { delay: 300 });
 });
 
 $("#btn-copy").addEventListener("click", () => {
   const code = $("#display-code").textContent;
   navigator.clipboard.writeText(code).then(
-    () => showToast("Code copied to clipboard.", "success"),
+    () => { showToast("Code copied to clipboard.", "success"); speakLine(pick(VOICE_LINES.copyCode)); },
     () => showToast("Copy failed — select manually.")
   );
   sfxClick();
@@ -937,6 +1326,7 @@ socket.on("game-start-set-secret", ({ digitLength }) => {
   focusDigitBox(0);
   showScreen("secret");
   sfxTurn();
+  speakLine(pick(VOICE_LINES.opponentJoined), { delay: 200, priority: true });
 });
 
 // ── Lock Secret ─────────────────────────────────────────────────────────────
@@ -978,6 +1368,7 @@ socket.on("secret-accepted", () => {
     b.style.pointerEvents = "none";
     b.style.opacity = "0.5";
   });
+  speakLine(pick(VOICE_LINES.secretLocked), { delay: 200 });
 });
 
 socket.on("waiting-for-opponent-secret", () => {});
@@ -1001,14 +1392,16 @@ socket.on("game-playing", async ({ yourName, opponentName, digitLength, isYourTu
     $("#turn-timer").classList.add("hidden");
   }
 
-  sfxBreachWarp();
-  await playBreachAnimation();
-
   updateTurn(isYourTurn);
   showScreen("game");
   loadNotes();
+
+  sfxBreachWarp();
+  await playBreachAnimation();
+
   if (isYourTurn) $("#input-guess").focus();
   sfxTurn();
+  speakLine(pick(VOICE_LINES.gameStart), { delay: 400, priority: true });
 });
 
 function updateTurn(isYourTurn) {
@@ -1061,7 +1454,36 @@ socket.on("guess-result", ({ isYourTurn, yourGuesses, opponentGuesses }) => {
   renderGuesses($("#your-guesses"), yourGuesses, true);
   renderGuesses($("#opponent-guesses"), opponentGuesses, true);
   updateTurn(isYourTurn);
-  if (isYourTurn) sfxTurn();
+
+  if (isYourTurn) {
+    sfxTurn();
+    const lastOpponentGuess = opponentGuesses[opponentGuesses.length - 1];
+    if (lastOpponentGuess) {
+      const reaction = VOICE_LINES.opponentGuessReaction(
+        lastOpponentGuess.numbersCorrect,
+        lastOpponentGuess.positionsCorrect,
+        currentDigitLength
+      );
+      if (reaction) {
+        speakLine(reaction, { delay: 600 });
+      } else {
+        speakLine(pick(VOICE_LINES.yourTurn), { delay: 600 });
+      }
+    } else {
+      speakLine(pick(VOICE_LINES.yourTurn), { delay: 400 });
+    }
+  } else {
+    const lastYourGuess = yourGuesses[yourGuesses.length - 1];
+    if (lastYourGuess) {
+      const line = VOICE_LINES.guessResult(
+        lastYourGuess.numbersCorrect,
+        lastYourGuess.positionsCorrect,
+        currentDigitLength,
+        yourGuesses.length
+      );
+      speakLine(line, { delay: 300 });
+    }
+  }
 });
 
 // ── Timer ────────────────────────────────────────────────────────────────────
@@ -1087,6 +1509,8 @@ function renderTimer(timeLeft, turnTime) {
 
   if (clamped <= 5 && clamped > 0) {
     playTone(800 + (5 - clamped) * 80, 0.05, "square", 0.03);
+    const timerLine = VOICE_LINES.timerWarning(clamped);
+    if (timerLine) speakLine(timerLine, { rate: 1.0, pitch: 0.2, priority: true });
   }
 }
 
@@ -1123,9 +1547,11 @@ socket.on("turn-skipped", ({ isYourTurn, yourGuesses, opponentGuesses, skippedPl
   if (skippedPlayerId === socket.id) {
     showToast("Time's up! Turn skipped.");
     sfxError();
+    speakLine(pick(VOICE_LINES.turnSkippedYou), { delay: 200, priority: true });
   } else {
     showToast("Opponent ran out of time!");
     sfxTurn();
+    speakLine(pick(VOICE_LINES.turnSkippedOpponent), { delay: 200, priority: true });
   }
 });
 
@@ -1150,6 +1576,7 @@ socket.on("game-over", ({ winnerName, youWon, yourSecret, opponentSecret, yourGu
     sfxWin();
     panel.classList.add("win-glow");
     setTimeout(() => panel.classList.remove("win-glow"), 6000);
+    speakLine(VOICE_LINES.win(yourGuesses.length), { delay: 800, priority: true });
   } else {
     icon.textContent = "ACCESS DENIED";
     icon.className = "go-icon lose-icon";
@@ -1163,6 +1590,7 @@ socket.on("game-over", ({ winnerName, youWon, yourSecret, opponentSecret, yourGu
     sfxLose();
     panel.classList.add("red-flash");
     setTimeout(() => panel.classList.remove("red-flash"), 400);
+    speakLine(pick(VOICE_LINES.lose), { delay: 800, priority: true });
   }
 
   const yv = $("#reveal-yours");
@@ -1191,6 +1619,7 @@ socket.on("game-over", ({ winnerName, youWon, yourSecret, opponentSecret, yourGu
 $("#btn-rematch").addEventListener("click", () => {
   socket.emit("play-again");
   sfxClick();
+  speakLine(pick(VOICE_LINES.rematchRequested), { delay: 200 });
 });
 
 socket.on("waiting-for-rematch", () => {
@@ -1213,11 +1642,16 @@ socket.on("opponent-left", ({ name }) => {
   $("#btn-guess").disabled = false;
   showScreen("lobby");
   sfxError();
+  speakLine(pick(VOICE_LINES.opponentLeft), { delay: 300, priority: true });
 });
 
 // ── Errors ──────────────────────────────────────────────────────────────────
 
-socket.on("error-msg", (msg) => { showToast(msg); sfxError(); });
+socket.on("error-msg", (msg) => {
+  showToast(msg);
+  sfxError();
+  speakLine(pick(VOICE_LINES.errorGeneric), { delay: 200 });
+});
 
 // ── Reconnect Handling ───────────────────────────────────────────────────────
 
