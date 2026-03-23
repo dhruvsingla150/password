@@ -1226,6 +1226,46 @@ select option {
   100% { opacity: 1; transform: scale(1) rotate(0deg); filter: blur(0); margin-top: 100px; }
 }
 
+/* ── Connection Banner ─────────────────────────────── */
+
+.connection-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 150;
+  padding: 0.45rem 1rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-align: center;
+  transform: translateY(-100%);
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.connection-banner.visible {
+  transform: translateY(0);
+}
+
+.connection-banner.error {
+  background: rgba(192, 57, 43, 0.15);
+  border-bottom: 1px solid var(--red);
+  color: var(--red);
+}
+
+.connection-banner.warning {
+  background: rgba(212, 160, 23, 0.12);
+  border-bottom: 1px solid var(--amber);
+  color: var(--amber);
+}
+
+.connection-banner.success {
+  background: rgba(39, 174, 96, 0.12);
+  border-bottom: 1px solid var(--green);
+  color: var(--green);
+}
+
 /* ── Hidden ────────────────────────────────────────── */
 
 .hidden { display: none !important; }

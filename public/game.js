@@ -1628,9 +1628,27 @@ socket.on("waiting-for-rematch", () => {
   $("#rematch-waiting").classList.remove("hidden");
 });
 
-// ── Opponent Left ───────────────────────────────────────────────────────────
+// ── Opponent Disconnected (temporary — grace period active) ──────────────────
+
+socket.on("opponent-disconnected", ({ name, graceMs }) => {
+  console.log(`[CONN] Opponent "${name}" disconnected, grace period ${graceMs}ms`);
+  showToast(`${name} lost connection. Waiting for reconnect...`);
+  const banner = $("#connection-banner");
+  banner.textContent = `⚠ ${name} disconnected — waiting for reconnect...`;
+  banner.className = "connection-banner warning visible";
+});
+
+socket.on("opponent-reconnected", ({ name }) => {
+  console.log(`[CONN] Opponent "${name}" reconnected`);
+  showToast(`${name} reconnected!`, "success");
+  const banner = $("#connection-banner");
+  banner.className = "connection-banner";
+});
+
+// ── Opponent Left (grace expired — they're gone) ────────────────────────────
 
 socket.on("opponent-left", ({ name }) => {
+  console.log(`[CONN] Opponent "${name}" left permanently (grace expired)`);
   showToast(`${name} disconnected.`);
   stopClientTimer();
   clearNotesStorage();
@@ -1640,6 +1658,8 @@ socket.on("opponent-left", ({ name }) => {
   $("#input-secret").disabled = false;
   $("#input-guess").disabled = false;
   $("#btn-guess").disabled = false;
+  const banner = $("#connection-banner");
+  banner.className = "connection-banner";
   showScreen("lobby");
   sfxError();
   speakLine(pick(VOICE_LINES.opponentLeft), { delay: 300, priority: true });
@@ -1653,15 +1673,68 @@ socket.on("error-msg", (msg) => {
   speakLine(pick(VOICE_LINES.errorGeneric), { delay: 200 });
 });
 
-// ── Reconnect Handling ───────────────────────────────────────────────────────
+// ── Connection State Tracking ─────────────────────────────────────────────────
+
+let reconnectAttempts = 0;
 
 socket.on("connect", () => {
+  console.log(`[CONN] Connected, socketId=${socket.id}, transport=${socket.io.engine.transport.name}`);
+  reconnectAttempts = 0;
+
+  const banner = $("#connection-banner");
+  if (banner.classList.contains("visible")) {
+    banner.textContent = "Reconnected!";
+    banner.className = "connection-banner success visible";
+    setTimeout(() => { banner.className = "connection-banner"; }, 2000);
+  }
+
   if (currentRoomCode && playerName) {
+    console.log(`[CONN] Attempting rejoin: room=${currentRoomCode}, name=${playerName}`);
     socket.emit("rejoin-room", { code: currentRoomCode, name: playerName });
   }
 });
 
+socket.on("disconnect", (reason) => {
+  console.log(`[CONN] Disconnected, reason="${reason}", hadRoom=${!!currentRoomCode}, playerName=${playerName}`);
+
+  const banner = $("#connection-banner");
+  if (currentRoomCode) {
+    banner.textContent = "Connection lost — reconnecting...";
+    banner.className = "connection-banner error visible";
+  }
+});
+
+socket.io.on("reconnect_attempt", (attempt) => {
+  reconnectAttempts = attempt;
+  console.log(`[CONN] Reconnect attempt #${attempt}`);
+  const banner = $("#connection-banner");
+  banner.textContent = `Reconnecting... (attempt ${attempt})`;
+  banner.className = "connection-banner error visible";
+});
+
+socket.io.on("reconnect_failed", () => {
+  console.log(`[CONN] Reconnect failed after ${reconnectAttempts} attempts`);
+  const banner = $("#connection-banner");
+  banner.textContent = "Connection lost. Please refresh the page.";
+  banner.className = "connection-banner error visible";
+});
+
+socket.io.on("error", (err) => {
+  console.log(`[CONN] Socket.IO error:`, err);
+});
+
+socket.on("server-shutdown", () => {
+  console.log(`[CONN] Server shutdown notification received`);
+  const banner = $("#connection-banner");
+  banner.textContent = "Server restarting — will reconnect automatically...";
+  banner.className = "connection-banner error visible";
+});
+
+// ── Rejoin State Restoration ─────────────────────────────────────────────────
+
 socket.on("rejoin-state", (state) => {
+  console.log(`[REJOIN] Received rejoin-state: phase=${state.phase}, room=${state.code}, name=${state.yourName}`);
+
   currentDigitLength = state.digitLength;
   currentTurnTime = state.turnTime || 0;
   currentRoomCode = state.code;
@@ -1710,17 +1783,58 @@ socket.on("rejoin-state", (state) => {
   } else if (state.phase === "finished") {
     stopClientTimer();
     $("#turn-timer").classList.add("hidden");
+
+    if (state.winnerName) {
+      const icon = $("#gameover-icon");
+      const title = $("#gameover-title");
+      if (state.youWon) {
+        icon.textContent = "ACCESS GRANTED";
+        icon.className = "go-icon win-icon";
+        icon.style.color = "var(--green)";
+        icon.style.fontSize = "1.1rem";
+        icon.style.letterSpacing = "0.25em";
+        icon.style.fontWeight = "700";
+        title.textContent = "CODE CRACKED";
+        title.className = "go-title win-text";
+        $("#gameover-subtitle").textContent = `Breached in ${state.yourGuesses.length} attempt${state.yourGuesses.length !== 1 ? "s" : ""}.`;
+      } else {
+        icon.textContent = "ACCESS DENIED";
+        icon.className = "go-icon lose-icon";
+        icon.style.color = "var(--red)";
+        icon.style.fontSize = "1.1rem";
+        icon.style.letterSpacing = "0.25em";
+        icon.style.fontWeight = "700";
+        title.textContent = `${state.winnerName} CRACKED IT`;
+        title.className = "go-title lose-text";
+        $("#gameover-subtitle").textContent = `They breached your code in ${state.opponentGuesses.length} attempt${state.opponentGuesses.length !== 1 ? "s" : ""}.`;
+      }
+
+      if (state.yourSecret) $("#reveal-yours").textContent = state.yourSecret;
+      if (state.opponentSecret) $("#reveal-theirs").textContent = state.opponentSecret;
+      renderGuesses($("#go-your-guesses"), state.yourGuesses, false);
+      renderGuesses($("#go-opponent-guesses"), state.opponentGuesses, false);
+
+      $("#btn-rematch").disabled = false;
+      $("#btn-rematch").classList.remove("hidden");
+      $("#rematch-waiting").classList.add("hidden");
+    }
+
     showScreen("gameover");
     loadNotes();
   }
 });
 
-socket.on("rejoin-failed", () => {
+socket.on("rejoin-failed", (data) => {
+  const reason = data && data.reason ? data.reason : "unknown";
+  console.log(`[REJOIN] Rejoin FAILED: reason=${reason}, room=${currentRoomCode}, name=${playerName}`);
+  showToast("Session expired. Please start a new game.");
   clearNotesStorage();
   currentRoomCode = null;
   playerName = null;
   stopClientTimer();
   $("#turn-timer").classList.add("hidden");
+  const banner = $("#connection-banner");
+  banner.className = "connection-banner";
   showScreen("lobby");
 });
 
