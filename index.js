@@ -8,8 +8,13 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: "*" },
-  pingInterval: 10000,
-  pingTimeout: 15000,
+  pingInterval: 25000,
+  pingTimeout: 30000,
+  transports: ["polling", "websocket"],
+  allowUpgrades: true,
+  httpCompression: true,
+  perMessageDeflate: true,
+  upgradeTimeout: 30000,
 });
 
 // ── Logging ─────────────────────────────────────────────────────────────────
@@ -149,6 +154,22 @@ io.on("connection", (socket) => {
 
   socket.conn.on("upgrade", (transport) => {
     log("CONN", `Transport upgraded`, { sid, from: "polling", to: transport.name });
+  });
+
+  socket.conn.on("packetCreate", (packet) => {
+    if (packet.type === "ping") {
+      log("PING", `Server sent ping`, { sid, transport: socket.conn.transport.name });
+    }
+  });
+
+  socket.conn.on("packet", (packet) => {
+    if (packet.type === "pong") {
+      log("PONG", `Client responded pong`, { sid, transport: socket.conn.transport.name });
+    }
+  });
+
+  socket.conn.on("close", (reason, description) => {
+    log("CONN", `Engine transport closed`, { sid, reason, description: description ? String(description) : null, transport: socket.conn.transport.name });
   });
 
   socket.on("create-room", ({ name, digitLength, turnTime }) => {
@@ -610,8 +631,7 @@ process.on("SIGINT", () => {
 });
 
 process.on("uncaughtException", (err) => {
-  log("FATAL", `Uncaught exception`, { error: err.message, stack: err.stack });
-  process.exit(1);
+  log("FATAL", `Uncaught exception (NOT exiting — kept alive)`, { error: err.message, stack: err.stack });
 });
 
 process.on("unhandledRejection", (reason) => {

@@ -1,4 +1,13 @@
-const socket = io();
+const socket = io({
+  transports: ["websocket", "polling"],
+  upgrade: true,
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  randomizationFactor: 0.5,
+  timeout: 30000,
+});
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -1678,8 +1687,13 @@ socket.on("error-msg", (msg) => {
 let reconnectAttempts = 0;
 
 socket.on("connect", () => {
-  console.log(`[CONN] Connected, socketId=${socket.id}, transport=${socket.io.engine.transport.name}`);
+  const transport = socket.io.engine.transport.name;
+  console.log(`[CONN] Connected, socketId=${socket.id}, transport=${transport}`);
   reconnectAttempts = 0;
+
+  if (transport === "polling") {
+    console.log(`[CONN] WARNING: Connected via polling, WebSocket upgrade pending...`);
+  }
 
   const banner = $("#connection-banner");
   if (banner.classList.contains("visible")) {
@@ -1713,14 +1727,42 @@ socket.io.on("reconnect_attempt", (attempt) => {
 });
 
 socket.io.on("reconnect_failed", () => {
-  console.log(`[CONN] Reconnect failed after ${reconnectAttempts} attempts`);
+  console.log(`[CONN] Reconnect failed after ${reconnectAttempts} attempts, switching transports and retrying`);
+
+  const currentTransports = socket.io.opts.transports;
+  if (currentTransports[0] === "websocket") {
+    console.log(`[CONN] WebSocket reconnect failed, falling back to polling-first`);
+    socket.io.opts.transports = ["polling", "websocket"];
+  } else {
+    console.log(`[CONN] Polling reconnect failed, trying websocket-first`);
+    socket.io.opts.transports = ["websocket", "polling"];
+  }
+
+  socket.io.reconnection(true);
+  socket.io.connect();
+
   const banner = $("#connection-banner");
-  banner.textContent = "Connection lost. Please refresh the page.";
+  banner.textContent = "Reconnecting with alternate transport...";
   banner.className = "connection-banner error visible";
 });
 
 socket.io.on("error", (err) => {
   console.log(`[CONN] Socket.IO error:`, err);
+});
+
+socket.io.engine && socket.io.engine.on("upgrade", (transport) => {
+  console.log(`[CONN] Transport upgraded to: ${transport.name}`);
+});
+
+socket.on("connect", function onceEngineReady() {
+  if (socket.io.engine) {
+    socket.io.engine.on("upgrade", (transport) => {
+      console.log(`[CONN] Transport upgraded to: ${transport.name}`);
+    });
+    socket.io.engine.on("close", (reason, desc) => {
+      console.log(`[CONN] Engine closed: reason=${reason}, desc=${desc || "none"}`);
+    });
+  }
 });
 
 socket.on("server-shutdown", () => {
