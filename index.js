@@ -82,11 +82,21 @@ function clearTurnTimer(room) {
   }
 }
 
-function startTurnTimer(room) {
+function startTurnTimer(room, options = {}) {
+  const resetTimeLeft = options.resetTimeLeft !== false;
   clearTurnTimer(room);
   if (!room.turnTime || room.turnTime <= 0) return;
 
-  room.timeLeft = room.turnTime;
+  if (resetTimeLeft) {
+    room.timeLeft = room.turnTime;
+  } else {
+    const left = room.timeLeft;
+    if (left == null || left <= 0) {
+      room.timeLeft = room.turnTime;
+    } else {
+      room.timeLeft = Math.min(left, room.turnTime);
+    }
+  }
   io.to(room.code).emit("timer-tick", { timeLeft: room.timeLeft, turnTime: room.turnTime });
 
   room.turnTimer = setInterval(() => {
@@ -287,7 +297,7 @@ io.on("connection", (socket) => {
     const allConnected = room.players.every((p) => !p.disconnectedAt);
     if (room.phase === "playing" && room.turnTime > 0 && room.timeLeft > 0 && allConnected) {
       log("REJOIN", `Restarting turn timer (all players connected)`, { sid, roomCode, timeLeft: room.timeLeft });
-      startTurnTimer(room);
+      startTurnTimer(room, { resetTimeLeft: false });
     }
 
     const opponent = room.players.find((p) => p.id !== socket.id);
@@ -495,7 +505,11 @@ io.on("connection", (socket) => {
     log("DISC", `Player disconnecting`, { sid, name: pName, phase: room.phase, room: logRoom(room) });
 
     if (room.phase === "playing" || room.phase === "setting" || room.phase === "finished") {
-      clearTurnTimer(room);
+      // During an active round, the turn clock keeps running on the server while someone is
+      // disconnected — real time counts down so reconnecting players sync to the same deadline.
+      if (room.phase !== "playing") {
+        clearTurnTimer(room);
+      }
 
       player.disconnectedAt = Date.now();
 

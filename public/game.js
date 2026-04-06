@@ -1760,7 +1760,13 @@ socket.on("connect", function onceEngineReady() {
       console.log(`[CONN] Transport upgraded to: ${transport.name}`);
     });
     socket.io.engine.on("close", (reason, desc) => {
-      console.log(`[CONN] Engine closed: reason=${reason}, desc=${desc || "none"}`);
+      const descStr =
+        desc == null
+          ? "none"
+          : typeof desc === "object"
+            ? JSON.stringify(desc)
+            : String(desc);
+      console.log(`[CONN] Engine closed: reason=${reason}, desc=${descStr}`);
     });
   }
 });
