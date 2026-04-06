@@ -227,6 +227,32 @@
 
   </div>
 
+  <!-- ── PLAYER CHAT (two-player channel) ────────────── -->
+  <aside id="chat-panel" class="chat-panel hidden" aria-label="Secure channel chat">
+    <button type="button" id="chat-tab" class="chat-tab" title="Toggle chat" aria-expanded="false" aria-controls="chat-shell">
+      <span class="chat-tab-label">CHAT</span>
+      <span id="chat-unread" class="chat-unread hidden" aria-hidden="true">0</span>
+    </button>
+    <div id="chat-shell" class="chat-shell">
+      <div class="chat-shell-header">
+        <span class="chat-shell-title">SECURE CHANNEL</span>
+        <button type="button" id="chat-collapse" class="chat-collapse-btn" title="Minimize">&#9654;</button>
+      </div>
+      <div id="chat-messages" class="chat-messages" role="log" aria-live="polite" aria-relevant="additions"></div>
+      <div class="chat-input-row">
+        <input
+          id="chat-input"
+          type="text"
+          maxlength="500"
+          placeholder="Message opponent..."
+          autocomplete="off"
+          spellcheck="true"
+        />
+        <button type="button" id="chat-send" class="btn chat-send-btn">SEND</button>
+      </div>
+    </div>
+  </aside>
+
   <script
     src="https://cdn.socket.io/4.8.3/socket.io.min.js"
     integrity="sha384-kzavj5fiMwLKzzD1f8S7TeoVIEi7uKHvbTA3ueZkrzYq75pNQUiUi6Dy98Q3fxb0"

@@ -133,6 +133,17 @@ function startTurnTimer(room, options = {}) {
   }, 1000);
 }
 
+const CHAT_MAX_LEN = 500;
+
+function sanitizeChatText(raw) {
+  if (typeof raw !== "string") return null;
+  const noNull = raw.replace(/\0/g, "");
+  const collapsed = noNull.replace(/\s+/g, " ").trim();
+  if (collapsed.length === 0) return null;
+  if (collapsed.length > CHAT_MAX_LEN) return collapsed.slice(0, CHAT_MAX_LEN);
+  return collapsed;
+}
+
 function evaluateGuess(secret, guess) {
   const len = secret.length;
   let positionsCorrect = 0;
@@ -449,6 +460,25 @@ io.on("connection", (socket) => {
     });
 
     startTurnTimer(room);
+  });
+
+  socket.on("chat-message", ({ text }) => {
+    if (!currentRoom) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.players.length !== 2) return;
+
+    const player = room.players.find((p) => p.id === socket.id);
+    if (!player) return;
+
+    const cleaned = sanitizeChatText(text);
+    if (!cleaned) return;
+
+    log("CHAT", `Message`, { sid, room: currentRoom, from: player.name, len: cleaned.length });
+    io.to(currentRoom).emit("chat-message", {
+      from: player.name,
+      text: cleaned,
+      ts: Date.now(),
+    });
   });
 
   socket.on("play-again", () => {

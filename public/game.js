@@ -1227,6 +1227,113 @@ function showToast(msg, type) {
   }, 3000);
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+//  PLAYER CHAT (two-player secure channel)
+// ══════════════════════════════════════════════════════════════════════════════
+
+const chatPanel = $("#chat-panel");
+const chatMessages = $("#chat-messages");
+const chatInput = $("#chat-input");
+let chatUnreadCount = 0;
+
+function resetChatMessages() {
+  chatMessages.innerHTML = "";
+  chatUnreadCount = 0;
+  const badge = $("#chat-unread");
+  badge.classList.add("hidden");
+  badge.textContent = "0";
+}
+
+function showPlayerChat() {
+  chatPanel.classList.remove("hidden");
+  chatPanel.classList.remove("collapsed");
+  resetChatMessages();
+  $("#chat-tab").setAttribute("aria-expanded", "true");
+}
+
+function hidePlayerChat() {
+  chatPanel.classList.add("hidden");
+  chatPanel.classList.add("collapsed");
+  resetChatMessages();
+  $("#chat-tab").setAttribute("aria-expanded", "false");
+}
+
+function bumpChatUnread() {
+  chatUnreadCount++;
+  const badge = $("#chat-unread");
+  badge.textContent = String(chatUnreadCount);
+  badge.classList.remove("hidden");
+}
+
+function clearChatUnread() {
+  chatUnreadCount = 0;
+  const badge = $("#chat-unread");
+  badge.classList.add("hidden");
+  badge.textContent = "0";
+}
+
+function sendChatMessage() {
+  if (chatPanel.classList.contains("hidden")) return;
+  const text = chatInput.value.trim();
+  if (!text) return;
+  socket.emit("chat-message", { text });
+  chatInput.value = "";
+}
+
+function appendChatMessage({ from, text }) {
+  const wrap = document.createElement("div");
+  wrap.className = "chat-msg";
+  const fromEl = document.createElement("div");
+  fromEl.className = "chat-msg-from" + (from === playerName ? " self" : "");
+  fromEl.textContent = from === playerName ? "YOU" : String(from).toUpperCase();
+  const textEl = document.createElement("div");
+  textEl.className = "chat-msg-text";
+  textEl.textContent = text;
+  wrap.appendChild(fromEl);
+  wrap.appendChild(textEl);
+  chatMessages.appendChild(wrap);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+
+  const collapsed = chatPanel.classList.contains("collapsed");
+  const hidden = chatPanel.classList.contains("hidden");
+  if (!hidden && collapsed) bumpChatUnread();
+}
+
+$("#chat-tab").addEventListener("click", () => {
+  if (chatPanel.classList.contains("hidden")) return;
+  if (chatPanel.classList.contains("collapsed")) {
+    chatPanel.classList.remove("collapsed");
+    clearChatUnread();
+    chatInput.focus();
+    $("#chat-tab").setAttribute("aria-expanded", "true");
+  } else {
+    chatPanel.classList.add("collapsed");
+    $("#chat-tab").setAttribute("aria-expanded", "false");
+  }
+});
+
+$("#chat-collapse").addEventListener("click", () => {
+  chatPanel.classList.add("collapsed");
+  $("#chat-tab").setAttribute("aria-expanded", "false");
+});
+
+$("#chat-send").addEventListener("click", () => {
+  sendChatMessage();
+  sfxClick();
+});
+
+$("#chat-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    sendChatMessage();
+  }
+});
+
+socket.on("chat-message", (payload) => {
+  if (!payload || typeof payload.from !== "string" || typeof payload.text !== "string") return;
+  appendChatMessage(payload);
+});
+
 function renderGuesses(container, guesses, animate) {
   const prevCount = container.children.length;
   container.innerHTML = "";
@@ -1334,6 +1441,7 @@ socket.on("game-start-set-secret", ({ digitLength }) => {
   createDigitBoxes($("#secret-digit-boxes"), digitLength);
   focusDigitBox(0);
   showScreen("secret");
+  showPlayerChat();
   sfxTurn();
   speakLine(pick(VOICE_LINES.opponentJoined), { delay: 200, priority: true });
 });
@@ -1669,6 +1777,7 @@ socket.on("opponent-left", ({ name }) => {
   $("#btn-guess").disabled = false;
   const banner = $("#connection-banner");
   banner.className = "connection-banner";
+  hidePlayerChat();
   showScreen("lobby");
   sfxError();
   speakLine(pick(VOICE_LINES.opponentLeft), { delay: 300, priority: true });
@@ -1789,6 +1898,7 @@ socket.on("rejoin-state", (state) => {
 
   if (state.phase === "waiting") {
     animateRoomCode(state.code);
+    hidePlayerChat();
     showScreen("waiting");
   } else if (state.phase === "setting") {
     $("#digit-count-label").textContent = state.digitLength;
@@ -1809,6 +1919,7 @@ socket.on("rejoin-state", (state) => {
       focusDigitBox(0);
     }
     showScreen("secret");
+    showPlayerChat();
   } else if (state.phase === "playing") {
     $("#game-title").textContent = `${state.yourName} vs ${state.opponentName}`;
     $("#game-your-secret").textContent = state.yourSecret;
@@ -1828,6 +1939,7 @@ socket.on("rejoin-state", (state) => {
     updateTurn(state.isYourTurn);
     showScreen("game");
     loadNotes();
+    showPlayerChat();
   } else if (state.phase === "finished") {
     stopClientTimer();
     $("#turn-timer").classList.add("hidden");
@@ -1869,6 +1981,7 @@ socket.on("rejoin-state", (state) => {
 
     showScreen("gameover");
     loadNotes();
+    showPlayerChat();
   }
 });
 
@@ -1883,6 +1996,7 @@ socket.on("rejoin-failed", (data) => {
   $("#turn-timer").classList.add("hidden");
   const banner = $("#connection-banner");
   banner.className = "connection-banner";
+  hidePlayerChat();
   showScreen("lobby");
 });
 

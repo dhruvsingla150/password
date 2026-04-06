@@ -1266,6 +1266,201 @@ select option {
   color: var(--green);
 }
 
+/* ── Side chat (two-player channel) ───────────────── */
+
+.chat-panel {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 60;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: stretch;
+  max-height: min(520px, 85vh);
+  font-family: var(--mono);
+}
+
+.chat-tab {
+  position: relative;
+  flex: 0 0 42px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.75rem 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: none;
+  color: var(--text-dim);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  cursor: pointer;
+  font-family: var(--mono);
+  transition: color 0.2s, background 0.2s;
+}
+
+.chat-tab:hover {
+  color: var(--amber);
+  background: var(--surface2);
+}
+
+.chat-unread {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%) rotate(180deg);
+  min-width: 1.1rem;
+  height: 1.1rem;
+  padding: 0 0.2rem;
+  background: var(--amber);
+  color: var(--bg);
+  border-radius: 999px;
+  font-size: 0.55rem;
+  font-weight: 700;
+  line-height: 1.1rem;
+  text-align: center;
+  writing-mode: horizontal-tb;
+}
+
+.chat-shell {
+  position: relative;
+  width: min(300px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-right: none;
+  box-shadow: -6px 0 28px rgba(0, 0, 0, 0.4);
+}
+
+.chat-shell::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--amber);
+  opacity: 0.5;
+}
+
+.chat-shell-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface2);
+}
+
+.chat-shell-title {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--text-dim);
+}
+
+.chat-collapse-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 0.65rem;
+  padding: 0.25rem 0.4rem;
+  line-height: 1;
+  font-family: var(--mono);
+}
+
+.chat-collapse-btn:hover {
+  color: var(--amber);
+}
+
+.chat-messages {
+  flex: 1;
+  min-height: 180px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 0.6rem 0.65rem;
+  background: var(--bg);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.chat-messages::-webkit-scrollbar { width: 4px; }
+.chat-messages::-webkit-scrollbar-track { background: transparent; }
+.chat-messages::-webkit-scrollbar-thumb { background: var(--border); }
+
+.chat-msg {
+  margin-bottom: 0.65rem;
+  word-break: break-word;
+}
+
+.chat-msg:last-child { margin-bottom: 0; }
+
+.chat-msg-from {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--amber);
+  margin-bottom: 0.15rem;
+}
+
+.chat-msg-from.self {
+  color: var(--green);
+}
+
+.chat-msg-text {
+  color: var(--text-bright);
+  font-weight: 400;
+}
+
+.chat-input-row {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.5rem 0.55rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface2);
+}
+
+#chat-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.45rem 0.55rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-bright);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  outline: none;
+}
+
+#chat-input:focus {
+  border-color: var(--amber-mid);
+  box-shadow: 0 0 0 1px var(--amber-dim);
+}
+
+.chat-send-btn {
+  flex: 0 0 auto;
+  padding: 0.45rem 0.65rem !important;
+  font-size: 0.58rem !important;
+  letter-spacing: 0.12em !important;
+}
+
+.chat-panel.collapsed .chat-shell {
+  display: none;
+}
+
+.chat-panel.collapsed .chat-tab {
+  border-left: 1px solid var(--border);
+}
+
 /* ── Hidden ────────────────────────────────────────── */
 
 .hidden { display: none !important; }
@@ -1302,4 +1497,46 @@ select option {
   .reveal-vs { display: none; }
 
   .secret-box { width: 100%; }
+
+  .chat-panel {
+    top: auto;
+    bottom: 0;
+    transform: none;
+    left: 0;
+    right: 0;
+    max-height: 50vh;
+    flex-direction: column-reverse;
+    width: 100%;
+  }
+
+  .chat-tab {
+    flex: 0 0 auto;
+    width: 100%;
+    writing-mode: horizontal-tb;
+    transform: none;
+    border-right: 1px solid var(--border);
+    border-top: none;
+    flex-direction: row;
+    justify-content: center;
+    padding: 0.65rem 1rem;
+    letter-spacing: 0.2em;
+  }
+
+  .chat-unread {
+    position: static;
+    transform: none;
+    margin-left: 0.35rem;
+  }
+
+  .chat-shell {
+    width: 100%;
+    border-right: 1px solid var(--border);
+    border-bottom: none;
+    max-height: 42vh;
+  }
+
+  .chat-messages {
+    max-height: 28vh;
+    min-height: 120px;
+  }
 }
