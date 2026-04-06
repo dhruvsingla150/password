@@ -7,6 +7,8 @@ const crypto = require("crypto");
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
+  // Client script is loaded from index.html (CDN); avoid serving socket.io maps from this host.
+  serveClient: false,
   cors: { origin: "*" },
   pingInterval: 25000,
   pingTimeout: 30000,
