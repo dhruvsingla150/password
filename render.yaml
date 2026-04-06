@@ -2,7 +2,7 @@ services:
   - type: web
     name: password-game
     runtime: node
-    buildCommand: npm install
+    buildCommand: npm ci && npm run build
     startCommand: node index.js
     plan: free
     envVars:
