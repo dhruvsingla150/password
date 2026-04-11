@@ -14,15 +14,20 @@ const io = new Server(server, {
   pingTimeout: 30000,
   transports: ["polling", "websocket"],
   allowUpgrades: true,
-  httpCompression: true,
-  perMessageDeflate: true,
+  httpCompression: false,
+  perMessageDeflate: false,
   upgradeTimeout: 30000,
 });
 
 // ── Logging ─────────────────────────────────────────────────────────────────
+// LOG_LEVEL: "verbose" = everything, "normal" = skip per-guess/ping/pong, "quiet" = errors only
+const LOG_LEVEL = (process.env.LOG_LEVEL || "normal").toLowerCase();
+const VERBOSE = LOG_LEVEL === "verbose";
+const QUIET = LOG_LEVEL === "quiet";
 
 let logSeq = 0;
 function log(category, message, data = {}) {
+  if (QUIET) return;
   const seq = ++logSeq;
   const ts = new Date().toISOString();
   const dataStr = Object.keys(data).length > 0 ? " " + JSON.stringify(data) : "";
@@ -173,34 +178,36 @@ io.on("connection", (socket) => {
   let currentRoom = null;
   const sid = socket.id.substring(0, 8);
 
-  log("CONN", `Socket connected`, { sid, transport: socket.conn.transport.name, remoteAddr: socket.handshake.address });
+  if (VERBOSE) {
+    log("CONN", `Socket connected`, { sid, transport: socket.conn.transport.name, remoteAddr: socket.handshake.address });
 
-  socket.conn.on("upgrade", (transport) => {
-    log("CONN", `Transport upgraded`, { sid, from: "polling", to: transport.name });
-  });
+    socket.conn.on("upgrade", (transport) => {
+      log("CONN", `Transport upgraded`, { sid, from: "polling", to: transport.name });
+    });
 
-  socket.conn.on("packetCreate", (packet) => {
-    if (packet.type === "ping") {
-      log("PING", `Server sent ping`, { sid, transport: socket.conn.transport.name });
-    }
-  });
+    socket.conn.on("packetCreate", (packet) => {
+      if (packet.type === "ping") {
+        log("PING", `Server sent ping`, { sid, transport: socket.conn.transport.name });
+      }
+    });
 
-  socket.conn.on("packet", (packet) => {
-    if (packet.type === "pong") {
-      log("PONG", `Client responded pong`, { sid, transport: socket.conn.transport.name });
-    }
-  });
+    socket.conn.on("packet", (packet) => {
+      if (packet.type === "pong") {
+        log("PONG", `Client responded pong`, { sid, transport: socket.conn.transport.name });
+      }
+    });
 
-  socket.conn.on("close", (reason, description) => {
-    log("CONN", `Engine transport closed`, { sid, reason, description: description ? String(description) : null, transport: socket.conn.transport.name });
-  });
+    socket.conn.on("close", (reason, description) => {
+      log("CONN", `Engine transport closed`, { sid, reason, description: description ? String(description) : null, transport: socket.conn.transport.name });
+    });
+  }
 
   socket.on("create-room", ({ name, digitLength, turnTime }) => {
-    log("ROOM", `create-room requested`, { sid, name, digitLength, turnTime });
+    if (VERBOSE) log("ROOM", `create-room requested`, { sid, name, digitLength, turnTime });
 
     const len = parseInt(digitLength, 10);
     if (isNaN(len) || len < 2 || len > 8) {
-      log("ROOM", `create-room rejected: invalid digit length`, { sid, digitLength });
+      if (VERBOSE) log("ROOM", `create-room rejected: invalid digit length`, { sid, digitLength });
       socket.emit("error-msg", "Digit length must be between 2 and 8.");
       return;
     }
@@ -226,7 +233,7 @@ io.on("connection", (socket) => {
     socket.join(code);
     currentRoom = code;
 
-    log("ROOM", `Room created`, { sid, name, room: logRoom(room) });
+    if (VERBOSE) log("ROOM", `Room created`, { sid, name, room: logRoom(room) });
     socket.emit("room-created", { code, digitLength: len, turnTime: validTurnTime, playerName: name });
   });
 
@@ -234,20 +241,20 @@ io.on("connection", (socket) => {
     const roomCode = code.toUpperCase().trim();
     const room = rooms.get(roomCode);
 
-    log("ROOM", `join-room requested`, { sid, name, roomCode, roomExists: !!room });
+    if (VERBOSE) log("ROOM", `join-room requested`, { sid, name, roomCode, roomExists: !!room });
 
     if (!room) {
-      log("ROOM", `join-room failed: room not found`, { sid, roomCode, totalRooms: rooms.size });
+      if (VERBOSE) log("ROOM", `join-room failed: room not found`, { sid, roomCode, totalRooms: rooms.size });
       socket.emit("error-msg", "Room not found.");
       return;
     }
     if (room.players.length >= 2) {
-      log("ROOM", `join-room failed: room full`, { sid, roomCode, room: logRoom(room) });
+      if (VERBOSE) log("ROOM", `join-room failed: room full`, { sid, roomCode, room: logRoom(room) });
       socket.emit("error-msg", "Room is full.");
       return;
     }
     if (room.phase !== "waiting") {
-      log("ROOM", `join-room failed: game in progress`, { sid, roomCode, phase: room.phase });
+      if (VERBOSE) log("ROOM", `join-room failed: game in progress`, { sid, roomCode, phase: room.phase });
       socket.emit("error-msg", "Game already in progress.");
       return;
     }
@@ -259,7 +266,7 @@ io.on("connection", (socket) => {
     socket.join(roomCode);
     currentRoom = roomCode;
 
-    log("ROOM", `Player joined room`, { sid, name, room: logRoom(room) });
+    if (VERBOSE) log("ROOM", `Player joined room`, { sid, name, room: logRoom(room) });
 
     const names = room.players.map((p) => p.name);
     io.to(roomCode).emit("game-start-set-secret", {
@@ -272,17 +279,17 @@ io.on("connection", (socket) => {
     const roomCode = code.toUpperCase().trim();
     const room = rooms.get(roomCode);
 
-    log("REJOIN", `rejoin-room requested`, { sid, name, roomCode, roomExists: !!room });
+    if (VERBOSE) log("REJOIN", `rejoin-room requested`, { sid, name, roomCode, roomExists: !!room });
 
     if (!room) {
-      log("REJOIN", `rejoin-room FAILED: room not found`, { sid, name, roomCode, totalRooms: rooms.size, allRoomCodes: Array.from(rooms.keys()) });
+      if (VERBOSE) log("REJOIN", `rejoin-room FAILED: room not found`, { sid, name, roomCode, totalRooms: rooms.size, allRoomCodes: Array.from(rooms.keys()) });
       socket.emit("rejoin-failed", { reason: "room_not_found" });
       return;
     }
 
     const player = room.players.find((p) => p.name === name);
     if (!player) {
-      log("REJOIN", `rejoin-room FAILED: player not in room`, { sid, name, roomCode, room: logRoom(room) });
+      if (VERBOSE) log("REJOIN", `rejoin-room FAILED: player not in room`, { sid, name, roomCode, room: logRoom(room) });
       socket.emit("rejoin-failed", { reason: "player_not_found" });
       return;
     }
@@ -290,13 +297,13 @@ io.on("connection", (socket) => {
     if (room._reconnectTimers && room._reconnectTimers[name]) {
       clearTimeout(room._reconnectTimers[name]);
       delete room._reconnectTimers[name];
-      log("REJOIN", `Cleared reconnect timer for ${name}`, { sid, roomCode });
+      if (VERBOSE) log("REJOIN", `Cleared reconnect timer for ${name}`, { sid, roomCode });
     }
     delete player.disconnectedAt;
 
     const oldId = player.id;
     if (oldId !== socket.id) {
-      log("REJOIN", `Migrating socket ID`, { sid, name, oldId: oldId.substring(0, 8), newId: sid });
+      if (VERBOSE) log("REJOIN", `Migrating socket ID`, { sid, name, oldId: oldId.substring(0, 8), newId: sid });
       room.guesses[socket.id] = room.guesses[oldId] || [];
       delete room.guesses[oldId];
       player.id = socket.id;
@@ -309,7 +316,7 @@ io.on("connection", (socket) => {
 
     const allConnected = room.players.every((p) => !p.disconnectedAt);
     if (room.phase === "playing" && room.turnTime > 0 && room.timeLeft > 0 && allConnected) {
-      log("REJOIN", `Restarting turn timer (all players connected)`, { sid, roomCode, timeLeft: room.timeLeft });
+      if (VERBOSE) log("REJOIN", `Restarting turn timer (all players connected)`, { sid, roomCode, timeLeft: room.timeLeft });
       startTurnTimer(room, { resetTimeLeft: false });
     }
 
@@ -317,7 +324,7 @@ io.on("connection", (socket) => {
     const myGuesses = room.guesses[socket.id] || [];
     const opponentGuesses = opponent ? (room.guesses[opponent.id] || []) : [];
 
-    log("REJOIN", `rejoin-room SUCCESS`, { sid, name, room: logRoom(room) });
+    if (VERBOSE) log("REJOIN", `rejoin-room SUCCESS`, { sid, name, room: logRoom(room) });
 
     socket.emit("rejoin-state", {
       code: roomCode,
@@ -363,7 +370,7 @@ io.on("connection", (socket) => {
     player.secret = s;
     player.ready = true;
 
-    log("GAME", `Secret set`, { sid, name: player.name, room: currentRoom });
+    if (VERBOSE) log("GAME", `Secret set`, { sid, name: player.name, room: currentRoom });
     socket.emit("secret-accepted");
 
     if (room.players.every((p) => p.ready)) {
@@ -417,7 +424,7 @@ io.on("connection", (socket) => {
 
     room.guesses[socket.id].push({ guess: g, ...result });
 
-    log("GAME", `Guess made`, { sid, name: player ? player.name : "?", guess: g, result, room: currentRoom, guessNum: room.guesses[socket.id].length });
+    if (VERBOSE) log("GAME", `Guess made`, { sid, name: player ? player.name : "?", guess: g, result, room: currentRoom, guessNum: room.guesses[socket.id].length });
 
     if (result.positionsCorrect === room.digitLength) {
       room.phase = "finished";
@@ -473,7 +480,7 @@ io.on("connection", (socket) => {
     const cleaned = sanitizeChatText(text);
     if (!cleaned) return;
 
-    log("CHAT", `Message`, { sid, room: currentRoom, from: player.name, len: cleaned.length });
+    if (VERBOSE) log("CHAT", `Message`, { sid, room: currentRoom, from: player.name, len: cleaned.length });
     io.to(currentRoom).emit("chat-message", {
       from: player.name,
       text: cleaned,
@@ -490,7 +497,7 @@ io.on("connection", (socket) => {
     if (!player) return;
 
     player.wantsRematch = true;
-    log("GAME", `Rematch requested`, { sid, name: player.name, room: currentRoom });
+    if (VERBOSE) log("GAME", `Rematch requested`, { sid, name: player.name, room: currentRoom });
 
     if (room.players.every((p) => p.wantsRematch)) {
       clearTurnTimer(room);
@@ -504,7 +511,7 @@ io.on("connection", (socket) => {
         room.guesses[p.id] = [];
       });
 
-      log("GAME", `Rematch starting`, { room: currentRoom });
+      if (VERBOSE) log("GAME", `Rematch starting`, { room: currentRoom });
 
       const names = room.players.map((p) => p.name);
       io.to(currentRoom).emit("game-start-set-secret", {
@@ -517,12 +524,12 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", (reason) => {
-    log("DISC", `Socket disconnected`, { sid, reason, hadRoom: !!currentRoom, roomCode: currentRoom });
+    if (VERBOSE) log("DISC", `Socket disconnected`, { sid, reason, hadRoom: !!currentRoom, roomCode: currentRoom });
 
     if (!currentRoom) return;
     const room = rooms.get(currentRoom);
     if (!room) {
-      log("DISC", `Room already gone on disconnect`, { sid, roomCode: currentRoom });
+      if (VERBOSE) log("DISC", `Room already gone on disconnect`, { sid, roomCode: currentRoom });
       return;
     }
 
@@ -530,11 +537,11 @@ io.on("connection", (socket) => {
     const pName = player ? player.name : null;
 
     if (!player) {
-      log("DISC", `Player not found in room on disconnect (already removed?)`, { sid, roomCode: currentRoom, room: logRoom(room) });
+      if (VERBOSE) log("DISC", `Player not found in room on disconnect (already removed?)`, { sid, roomCode: currentRoom, room: logRoom(room) });
       return;
     }
 
-    log("DISC", `Player disconnecting`, { sid, name: pName, phase: room.phase, room: logRoom(room) });
+    if (VERBOSE) log("DISC", `Player disconnecting`, { sid, name: pName, phase: room.phase, room: logRoom(room) });
 
     if (room.phase === "playing" || room.phase === "setting" || room.phase === "finished") {
       // During an active round, the turn clock keeps running on the server while someone is
@@ -554,22 +561,22 @@ io.on("connection", (socket) => {
       const reconnectTimeout = setTimeout(() => {
         const r = rooms.get(savedRoom);
         if (!r) {
-          log("DISC", `Reconnect timer fired but room gone`, { name: pName, roomCode: savedRoom });
+          if (VERBOSE) log("DISC", `Reconnect timer fired but room gone`, { name: pName, roomCode: savedRoom });
           return;
         }
         const p = r.players.find((pl) => pl.name === pName);
         if (!p || !p.disconnectedAt) {
-          log("DISC", `Reconnect timer fired but player already reconnected`, { name: pName, roomCode: savedRoom });
+          if (VERBOSE) log("DISC", `Reconnect timer fired but player already reconnected`, { name: pName, roomCode: savedRoom });
           return;
         }
 
-        log("DISC", `Reconnect grace expired, removing player`, { name: pName, roomCode: savedRoom, phase: r.phase, room: logRoom(r) });
+        if (VERBOSE) log("DISC", `Reconnect grace expired, removing player`, { name: pName, roomCode: savedRoom, phase: r.phase, room: logRoom(r) });
 
         r.players = r.players.filter((pl) => pl.name !== pName);
         delete r.guesses[p.id];
 
         if (r.players.length === 0) {
-          log("DISC", `Room empty after removal, deleting`, { roomCode: savedRoom });
+          if (VERBOSE) log("DISC", `Room empty after removal, deleting`, { roomCode: savedRoom });
           clearTurnTimer(r);
           rooms.delete(savedRoom);
         } else {
@@ -582,15 +589,15 @@ io.on("connection", (socket) => {
             pl.ready = false;
             r.guesses[pl.id] = [];
           });
-          log("DISC", `Room reset to waiting`, { roomCode: savedRoom, room: logRoom(r) });
+          if (VERBOSE) log("DISC", `Room reset to waiting`, { roomCode: savedRoom, room: logRoom(r) });
         }
       }, RECONNECT_GRACE_MS);
 
       if (!room._reconnectTimers) room._reconnectTimers = {};
       room._reconnectTimers[pName] = reconnectTimeout;
-      log("DISC", `Reconnect timer set (${RECONNECT_GRACE_MS}ms)`, { name: pName, roomCode: savedRoom });
+      if (VERBOSE) log("DISC", `Reconnect timer set (${RECONNECT_GRACE_MS}ms)`, { name: pName, roomCode: savedRoom });
     } else {
-      log("DISC", `Phase is "${room.phase}", applying grace period anyway`, { sid, name: pName, roomCode: currentRoom });
+      if (VERBOSE) log("DISC", `Phase is "${room.phase}", applying grace period anyway`, { sid, name: pName, roomCode: currentRoom });
 
       player.disconnectedAt = Date.now();
 
@@ -601,7 +608,7 @@ io.on("connection", (socket) => {
         const p = r.players.find((pl) => pl.name === pName);
         if (!p || !p.disconnectedAt) return;
 
-        log("DISC", `Grace expired in "${r.phase}" phase, removing player`, { name: pName, roomCode: savedRoom });
+        if (VERBOSE) log("DISC", `Grace expired in "${r.phase}" phase, removing player`, { name: pName, roomCode: savedRoom });
 
         r.players = r.players.filter((pl) => pl.name !== pName);
         delete r.guesses[p.id];
