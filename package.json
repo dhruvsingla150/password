@@ -6,17 +6,20 @@
   "scripts": {
     "start": "node index.js",
     "build": "npm audit --audit-level=high",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "stress": "node stress-test.js",
+    "stress:ramp": "node stress-test-ramp.js",
+    "stress:sweep": "node stress-test-sweep.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "express": "^4.22.1",
-    "socket.io": "^4.8.3"
+    "uWebSockets.js": "uNetworking/uWebSockets.js#v20.61.0"
   },
   "devDependencies": {
-    "playwright": "^1.58.2"
+    "playwright": "^1.58.2",
+    "ws": "^8.20.0"
   }
 }

@@ -1,13 +1,115 @@
-const socket = io({
-  transports: ["websocket", "polling"],
-  upgrade: true,
-  reconnection: true,
-  reconnectionAttempts: Infinity,
-  reconnectionDelay: 1000,
-  reconnectionDelayMax: 5000,
-  randomizationFactor: 0.5,
-  timeout: 30000,
-});
+// ══════════════════════════════════════════════════════════════════════════════
+//  WEBSOCKET CONNECTION (replaces Socket.IO with native WebSocket)
+// ══════════════════════════════════════════════════════════════════════════════
+
+const WS_RECONNECT_DELAY = 1000;
+const WS_RECONNECT_MAX = 5000;
+const WS_RECONNECT_FACTOR = 0.5;
+
+function createSocket() {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const url = `${proto}//${location.host}`;
+
+  const listeners = {};
+  let ws = null;
+  let socketId = null;
+  let reconnectAttempts = 0;
+  let reconnectTimer = null;
+  let intentionalClose = false;
+
+  function on(event, fn) {
+    if (!listeners[event]) listeners[event] = [];
+    listeners[event].push(fn);
+  }
+
+  function off(event, fn) {
+    if (!listeners[event]) return;
+    listeners[event] = listeners[event].filter((f) => f !== fn);
+  }
+
+  function fire(event, data) {
+    const fns = listeners[event];
+    if (fns) fns.forEach((fn) => fn(data));
+  }
+
+  function emit(event, data) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ e: event, d: data || {} }));
+    }
+  }
+
+  function connect() {
+    if (ws) {
+      try { ws.close(); } catch {}
+    }
+
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+      reconnectAttempts = 0;
+    };
+
+    ws.onmessage = (evt) => {
+      let parsed;
+      try { parsed = JSON.parse(evt.data); } catch { return; }
+      const { e: event, d: data } = parsed;
+      if (!event) return;
+
+      if (event === "connected") {
+        socketId = data.id;
+        fire("connect", data);
+        return;
+      }
+
+      fire(event, data);
+    };
+
+    ws.onclose = () => {
+      fire("disconnect", {});
+      if (!intentionalClose) {
+        scheduleReconnect();
+      }
+    };
+
+    ws.onerror = () => {
+      // onclose will fire after this
+    };
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) return;
+
+    reconnectAttempts++;
+    const jitter = 1 + (Math.random() - 0.5) * WS_RECONNECT_FACTOR;
+    const delay = Math.min(WS_RECONNECT_DELAY * reconnectAttempts * jitter, WS_RECONNECT_MAX);
+
+    fire("reconnect_attempt", { attempt: reconnectAttempts });
+
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, delay);
+  }
+
+  function close() {
+    intentionalClose = true;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (ws) ws.close();
+  }
+
+  Object.defineProperty(emit, "_socket", {
+    get: () => ({ id: socketId }),
+  });
+
+  connect();
+
+  return { on, off, emit, close, get id() { return socketId; } };
+}
+
+const socket = createSocket();
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -125,7 +227,6 @@ function playBreachAnimation() {
     const cx = W / 2;
     const cy = H / 2;
 
-    // The lock is drawn relative to a "unit size" so it scales to any screen
     const lockScale = Math.min(W, H) * 0.0028;
 
     const TOTAL_DURATION = 5400;
@@ -140,7 +241,6 @@ function playBreachAnimation() {
     let startTime = null;
     let animId = null;
 
-    // ── Warp Stars ──────────────────────────────────
     const stars = [];
     for (let i = 0; i < 400; i++) {
       stars.push({
@@ -152,7 +252,6 @@ function playBreachAnimation() {
       });
     }
 
-    // ── Particle Burst (fired on lock slam) ─────────
     const burstParticles = [];
     for (let i = 0; i < 150; i++) {
       const angle = Math.random() * Math.PI * 2;
@@ -168,7 +267,6 @@ function playBreachAnimation() {
       });
     }
 
-    // ── Radial Lines (burst outward on slam) ────────
     const radialLines = [];
     for (let i = 0; i < 24; i++) {
       radialLines.push({
@@ -179,7 +277,6 @@ function playBreachAnimation() {
       });
     }
 
-    // ── Floating Code Fragments ─────────────────────
     const codeFragments = [];
     const fragTexts = [
       "0x4F2A", "ENCRYPT", "SHA-256", ">>KEY",
@@ -217,7 +314,6 @@ function playBreachAnimation() {
     }
 
     function drawLock(lockCx, lockCy, scale, shackleOpen) {
-      // shackleOpen: 1 = fully open (rotated up-left), 0 = fully closed
       const s = scale;
       const bodyW = 60 * s;
       const bodyH = 50 * s;
@@ -225,7 +321,6 @@ function playBreachAnimation() {
       const bodyTop = lockCy;
       const bodyLeft = lockCx - bodyW / 2;
 
-      // Lock body
       bCtx.beginPath();
       bCtx.moveTo(bodyLeft + bodyR, bodyTop);
       bCtx.lineTo(bodyLeft + bodyW - bodyR, bodyTop);
@@ -248,7 +343,6 @@ function playBreachAnimation() {
       bCtx.lineWidth = 2 * s;
       bCtx.stroke();
 
-      // Inner border highlight
       bCtx.beginPath();
       const inset = 4 * s;
       bCtx.rect(bodyLeft + inset, bodyTop + inset, bodyW - inset * 2, bodyH - inset * 2);
@@ -256,7 +350,6 @@ function playBreachAnimation() {
       bCtx.lineWidth = 1 * s;
       bCtx.stroke();
 
-      // Keyhole
       const khCx = lockCx;
       const khCy = bodyTop + bodyH * 0.45;
       const khR = 7 * s;
@@ -272,7 +365,6 @@ function playBreachAnimation() {
       bCtx.fillStyle = "#d4a017";
       bCtx.fill();
 
-      // Shackle
       const shackleW = 36 * s;
       const shackleH = 34 * s;
       const shackleThick = 8 * s;
@@ -316,7 +408,6 @@ function playBreachAnimation() {
       if (!startTime) startTime = timestamp;
       const elapsed = timestamp - startTime;
 
-      // Screen shake offset
       let shakeX = 0, shakeY = 0;
       if (screenShake > 0) {
         shakeX = (Math.random() - 0.5) * screenShake;
@@ -331,7 +422,6 @@ function playBreachAnimation() {
       bCtx.fillStyle = "rgba(0, 0, 0, 0.18)";
       bCtx.fillRect(-10, -10, W + 20, H + 20);
 
-      // ── Floating Code Fragments ───────────────────
       if (elapsed > 200 && elapsed < PHASE_HOLD) {
         const fragTarget = elapsed < PHASE_LOCK_SLAM ? 1 : Math.max(0, 1 - (elapsed - PHASE_LOCK_SLAM) / 800);
         bCtx.font = `11px monospace`;
@@ -350,7 +440,6 @@ function playBreachAnimation() {
         }
       }
 
-      // ── Phase 1: Warp Tunnel ──────────────────────
       if (elapsed < PHASE_WARP_END + 600) {
         const fadeOut = elapsed > PHASE_WARP_END
           ? Math.max(0, 1 - (elapsed - PHASE_WARP_END) / 600)
@@ -392,7 +481,6 @@ function playBreachAnimation() {
           }
         }
 
-        // Hexagonal tunnel rings
         if (elapsed > 300) {
           const tunnelAlpha = Math.min(1, (elapsed - 300) / 500) * fadeOut;
           const numRings = 8;
@@ -418,18 +506,15 @@ function playBreachAnimation() {
         }
       }
 
-      // ── Phase 2: Lock Appears (open) ──────────────
       if (elapsed >= PHASE_LOCK_APPEAR && elapsed < PHASE_FADEOUT + 1000) {
         let lockAlpha, lockDrawScale, shackleOpen;
 
         if (elapsed < PHASE_LOCK_SLAM) {
-          // Lock fading in, open position
           const t = (elapsed - PHASE_LOCK_APPEAR) / (PHASE_LOCK_SLAM - PHASE_LOCK_APPEAR);
           lockAlpha = Math.min(1, t * 1.5);
           lockDrawScale = lockScale * (0.6 + easeOutBack(Math.min(t, 1)) * 0.4);
           shackleOpen = 1;
         } else {
-          // Lock slams shut
           const slamDur = 250;
           const t = Math.min((elapsed - PHASE_LOCK_SLAM) / slamDur, 1);
           lockAlpha = 1;
@@ -444,7 +529,6 @@ function playBreachAnimation() {
           }
         }
 
-        // Pulsing glow behind the lock
         if (elapsed >= PHASE_LOCK_SLAM) {
           const pulseT = ((elapsed - PHASE_LOCK_SLAM) % 1500) / 1500;
           const pulseR = 80 * lockScale + Math.sin(pulseT * Math.PI * 2) * 15 * lockScale;
@@ -460,7 +544,6 @@ function playBreachAnimation() {
         bCtx.globalAlpha = 1;
       }
 
-      // ── Shockwave on slam ─────────────────────────
       if (elapsed >= PHASE_SHOCKWAVE && elapsed < PHASE_SHOCKWAVE + 800) {
         const t = (elapsed - PHASE_SHOCKWAVE) / 800;
         const radius = t * Math.max(W, H) * 0.6;
@@ -479,7 +562,6 @@ function playBreachAnimation() {
         bCtx.stroke();
       }
 
-      // ── Radial Lines on slam ──────────────────────
       if (burstFired && elapsed < PHASE_TEXT + 400) {
         for (const line of radialLines) {
           line.length = Math.min(line.maxLength, line.length + line.speed);
@@ -495,7 +577,6 @@ function playBreachAnimation() {
         }
       }
 
-      // ── Particle Burst ────────────────────────────
       if (burstFired) {
         for (const p of burstParticles) {
           p.x += p.vx;
@@ -516,7 +597,6 @@ function playBreachAnimation() {
         }
       }
 
-      // ── "LOCKED" Text ─────────────────────────────
       if (elapsed >= PHASE_TEXT && !textShown) {
         textShown = true;
         breachStatus.textContent = "LOCKED";
@@ -532,7 +612,6 @@ function playBreachAnimation() {
         }
       }
 
-      // ── Glitch tears ──────────────────────────────
       if (elapsed >= PHASE_LOCK_SLAM && elapsed < PHASE_LOCK_SLAM + 500 && Math.random() > 0.7) {
         const glitchY = Math.random() * H;
         const glitchH = Math.random() * 15 + 3;
@@ -543,7 +622,6 @@ function playBreachAnimation() {
         } catch (_) {}
       }
 
-      // ── Scanlines ─────────────────────────────────
       if (elapsed > 200) {
         for (let y = 0; y < H; y += 3) {
           bCtx.fillStyle = "rgba(0, 0, 0, 0.06)";
@@ -551,7 +629,6 @@ function playBreachAnimation() {
         }
       }
 
-      // ── Vignette ──────────────────────────────────
       const vigGrad = bCtx.createRadialGradient(cx, cy, H * 0.3, cx, cy, H * 0.9);
       vigGrad.addColorStop(0, "transparent");
       vigGrad.addColorStop(1, "rgba(0, 0, 0, 0.5)");
@@ -560,7 +637,6 @@ function playBreachAnimation() {
 
       bCtx.restore();
 
-      // ── Fade out to game ──────────────────────────
       if (elapsed >= PHASE_FADEOUT) {
         const fadeT = Math.min((elapsed - PHASE_FADEOUT) / (TOTAL_DURATION - PHASE_FADEOUT), 1);
         breachOverlay.style.opacity = String(1 - fadeT);
@@ -1768,7 +1844,7 @@ socket.on("opponent-disconnected", ({ name, graceMs }) => {
   console.log(`[CONN] Opponent "${name}" disconnected, grace period ${graceMs}ms`);
   showToast(`${name} lost connection. Waiting for reconnect...`);
   const banner = $("#connection-banner");
-  banner.textContent = `⚠ ${name} disconnected — waiting for reconnect...`;
+  banner.textContent = `\u26A0 ${name} disconnected \u2014 waiting for reconnect...`;
   banner.className = "connection-banner warning visible";
 });
 
@@ -1810,16 +1886,8 @@ socket.on("error-msg", (msg) => {
 
 // ── Connection State Tracking ─────────────────────────────────────────────────
 
-let reconnectAttempts = 0;
-
 socket.on("connect", () => {
-  const transport = socket.io.engine.transport.name;
-  console.log(`[CONN] Connected, socketId=${socket.id}, transport=${transport}`);
-  reconnectAttempts = 0;
-
-  if (transport === "polling") {
-    console.log(`[CONN] WARNING: Connected via polling, WebSocket upgrade pending...`);
-  }
+  console.log(`[CONN] Connected, socketId=${socket.id}`);
 
   const banner = $("#connection-banner");
   if (banner.classList.contains("visible")) {
@@ -1834,73 +1902,27 @@ socket.on("connect", () => {
   }
 });
 
-socket.on("disconnect", (reason) => {
-  console.log(`[CONN] Disconnected, reason="${reason}", hadRoom=${!!currentRoomCode}, playerName=${playerName}`);
+socket.on("disconnect", () => {
+  console.log(`[CONN] Disconnected, hadRoom=${!!currentRoomCode}, playerName=${playerName}`);
 
   const banner = $("#connection-banner");
   if (currentRoomCode) {
-    banner.textContent = "Connection lost — reconnecting...";
+    banner.textContent = "Connection lost \u2014 reconnecting...";
     banner.className = "connection-banner error visible";
   }
 });
 
-socket.io.on("reconnect_attempt", (attempt) => {
-  reconnectAttempts = attempt;
+socket.on("reconnect_attempt", ({ attempt }) => {
   console.log(`[CONN] Reconnect attempt #${attempt}`);
   const banner = $("#connection-banner");
   banner.textContent = `Reconnecting... (attempt ${attempt})`;
   banner.className = "connection-banner error visible";
 });
 
-socket.io.on("reconnect_failed", () => {
-  console.log(`[CONN] Reconnect failed after ${reconnectAttempts} attempts, switching transports and retrying`);
-
-  const currentTransports = socket.io.opts.transports;
-  if (currentTransports[0] === "websocket") {
-    console.log(`[CONN] WebSocket reconnect failed, falling back to polling-first`);
-    socket.io.opts.transports = ["polling", "websocket"];
-  } else {
-    console.log(`[CONN] Polling reconnect failed, trying websocket-first`);
-    socket.io.opts.transports = ["websocket", "polling"];
-  }
-
-  socket.io.reconnection(true);
-  socket.io.connect();
-
-  const banner = $("#connection-banner");
-  banner.textContent = "Reconnecting with alternate transport...";
-  banner.className = "connection-banner error visible";
-});
-
-socket.io.on("error", (err) => {
-  console.log(`[CONN] Socket.IO error:`, err);
-});
-
-socket.io.engine && socket.io.engine.on("upgrade", (transport) => {
-  console.log(`[CONN] Transport upgraded to: ${transport.name}`);
-});
-
-socket.on("connect", function onceEngineReady() {
-  if (socket.io.engine) {
-    socket.io.engine.on("upgrade", (transport) => {
-      console.log(`[CONN] Transport upgraded to: ${transport.name}`);
-    });
-    socket.io.engine.on("close", (reason, desc) => {
-      const descStr =
-        desc == null
-          ? "none"
-          : typeof desc === "object"
-            ? JSON.stringify(desc)
-            : String(desc);
-      console.log(`[CONN] Engine closed: reason=${reason}, desc=${descStr}`);
-    });
-  }
-});
-
 socket.on("server-shutdown", () => {
   console.log(`[CONN] Server shutdown notification received`);
   const banner = $("#connection-banner");
-  banner.textContent = "Server restarting — will reconnect automatically...";
+  banner.textContent = "Server restarting \u2014 will reconnect automatically...";
   banner.className = "connection-banner error visible";
 });
 
