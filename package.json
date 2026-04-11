@@ -16,7 +16,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "uWebSockets.js": "uNetworking/uWebSockets.js#v20.61.0"
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.54.0"
   },
   "devDependencies": {
     "playwright": "^1.58.2",
