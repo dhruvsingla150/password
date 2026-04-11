@@ -2,21 +2,20 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const path = require("path");
-const crypto = require("crypto");
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  // Client script is loaded from index.html (CDN); avoid serving socket.io maps from this host.
   serveClient: false,
   cors: { origin: "*" },
-  pingInterval: 25000,
+  pingInterval: 60000,
   pingTimeout: 30000,
-  transports: ["polling", "websocket"],
+  transports: ["websocket", "polling"],
   allowUpgrades: true,
   httpCompression: false,
   perMessageDeflate: false,
   upgradeTimeout: 30000,
+  maxHttpBufferSize: 1e5,
 });
 
 // ── Logging ─────────────────────────────────────────────────────────────────
@@ -76,10 +75,16 @@ app.get("/", (req, res) => {
 // ── Game State ──────────────────────────────────────────────────────────────
 
 const rooms = new Map();
+const socketMap = new Map();
 const RECONNECT_GRACE_MS = 20000;
 
+const ROOM_CODE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 function generateRoomCode() {
-  return crypto.randomBytes(3).toString("hex").toUpperCase();
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    code += ROOM_CODE_CHARS[(Math.random() * 36) | 0];
+  }
+  return code;
 }
 
 function clearTurnTimer(room) {
@@ -121,17 +126,18 @@ function startTurnTimer(room, options = {}) {
       log("TIMER", `Turn skipped for ${skippedPlayer ? skippedPlayer.name : "unknown"}`, { room: room.code });
       room.turn = opponent.id;
 
-      room.players.forEach((p) => {
-        const myGuesses = room.guesses[p.id];
-        const opponentGuesses = room.guesses[room.players.find((o) => o.id !== p.id).id];
-
-        io.to(p.id).emit("turn-skipped", {
-          isYourTurn: p.id === room.turn,
-          yourGuesses: myGuesses,
-          opponentGuesses: opponentGuesses,
-          skippedPlayerId: skippedPlayer ? skippedPlayer.id : null,
-        });
-      });
+      for (const p of room.players) {
+        const opp = room.players.find((o) => o.id !== p.id);
+        const s = socketMap.get(p.id);
+        if (s) {
+          s.emit("turn-skipped", {
+            isYourTurn: p.id === room.turn,
+            yourGuesses: room.guesses[p.id],
+            opponentGuesses: room.guesses[opp.id],
+            skippedPlayerId: skippedPlayer ? skippedPlayer.id : null,
+          });
+        }
+      }
 
       startTurnTimer(room);
     }
@@ -177,6 +183,8 @@ function evaluateGuess(secret, guess) {
 io.on("connection", (socket) => {
   let currentRoom = null;
   const sid = socket.id.substring(0, 8);
+
+  socketMap.set(socket.id, socket);
 
   if (VERBOSE) {
     log("CONN", `Socket connected`, { sid, transport: socket.conn.transport.name, remoteAddr: socket.handshake.address });
@@ -380,17 +388,20 @@ io.on("connection", (socket) => {
 
       log("GAME", `Game phase -> playing`, { room: currentRoom, starter: starter.name });
 
-      room.players.forEach((p) => {
-        const opponent = room.players.find((o) => o.id !== p.id);
-        io.to(p.id).emit("game-playing", {
-          yourName: p.name,
-          opponentName: opponent.name,
-          digitLength: room.digitLength,
-          isYourTurn: p.id === room.turn,
-          yourSecret: p.secret,
-          turnTime: room.turnTime,
-        });
-      });
+      for (const p of room.players) {
+        const opp = room.players.find((o) => o.id !== p.id);
+        const s = socketMap.get(p.id);
+        if (s) {
+          s.emit("game-playing", {
+            yourName: p.name,
+            opponentName: opp.name,
+            digitLength: room.digitLength,
+            isYourTurn: p.id === room.turn,
+            yourSecret: p.secret,
+            turnTime: room.turnTime,
+          });
+        }
+      }
 
       startTurnTimer(room);
     } else {
@@ -418,53 +429,70 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const player = room.players.find((p) => p.id === socket.id);
-    const opponent = room.players.find((p) => p.id !== socket.id);
+    const p0 = room.players[0];
+    const p1 = room.players[1];
+    const isP0 = socket.id === p0.id;
+    const player = isP0 ? p0 : p1;
+    const opponent = isP0 ? p1 : p0;
     const result = evaluateGuess(opponent.secret, g);
+    const entry = { guess: g, numbersCorrect: result.numbersCorrect, positionsCorrect: result.positionsCorrect };
 
-    room.guesses[socket.id].push({ guess: g, ...result });
+    room.guesses[socket.id].push(entry);
 
-    if (VERBOSE) log("GAME", `Guess made`, { sid, name: player ? player.name : "?", guess: g, result, room: currentRoom, guessNum: room.guesses[socket.id].length });
+    if (VERBOSE) log("GAME", `Guess made`, { sid, name: player.name, guess: g, result, room: currentRoom, guessNum: room.guesses[socket.id].length });
 
     if (result.positionsCorrect === room.digitLength) {
       room.phase = "finished";
       room.winner = socket.id;
       clearTurnTimer(room);
 
-      const guesser = room.players.find((p) => p.id === socket.id);
-      log("GAME", `Game over! Winner: ${guesser.name}`, { room: currentRoom, attempts: room.guesses[socket.id].length });
+      log("GAME", `Game over! Winner: ${player.name}`, { room: currentRoom, attempts: room.guesses[socket.id].length });
 
-      room.players.forEach((p) => {
-        const myGuesses = room.guesses[p.id];
-        const theirGuesses = room.guesses[room.players.find((o) => o.id !== p.id).id];
-        const opponentPlayer = room.players.find((o) => o.id !== p.id);
+      const myGuesses = room.guesses[player.id];
+      const oppGuesses = room.guesses[opponent.id];
 
-        io.to(p.id).emit("game-over", {
-          winnerName: guesser.name,
-          youWon: p.id === socket.id,
-          yourSecret: p.secret,
-          opponentSecret: opponentPlayer.secret,
-          yourGuesses: myGuesses,
-          opponentGuesses: theirGuesses,
-          totalRounds: myGuesses.length,
-        });
+      socket.emit("game-over", {
+        winnerName: player.name,
+        youWon: true,
+        yourSecret: player.secret,
+        opponentSecret: opponent.secret,
+        yourGuesses: myGuesses,
+        opponentGuesses: oppGuesses,
+        totalRounds: myGuesses.length,
       });
+
+      const oppSocket = socketMap.get(opponent.id);
+      if (oppSocket) {
+        oppSocket.emit("game-over", {
+          winnerName: player.name,
+          youWon: false,
+          yourSecret: opponent.secret,
+          opponentSecret: player.secret,
+          yourGuesses: oppGuesses,
+          opponentGuesses: myGuesses,
+          totalRounds: oppGuesses.length,
+        });
+      }
 
       return;
     }
 
     room.turn = opponent.id;
 
-    room.players.forEach((p) => {
-      const myGuesses = room.guesses[p.id];
-      const opponentGuesses = room.guesses[room.players.find((o) => o.id !== p.id).id];
-
-      io.to(p.id).emit("guess-result", {
-        isYourTurn: p.id === room.turn,
-        yourGuesses: myGuesses,
-        opponentGuesses: opponentGuesses,
-      });
+    socket.emit("guess-result", {
+      isYourTurn: false,
+      lastGuess: entry,
+      guessNumber: room.guesses[player.id].length,
     });
+
+    const oppSocket = socketMap.get(opponent.id);
+    if (oppSocket) {
+      oppSocket.emit("guess-result", {
+        isYourTurn: true,
+        lastGuess: { guess: g, numbersCorrect: result.numbersCorrect, positionsCorrect: result.positionsCorrect },
+        guessNumber: room.guesses[player.id].length,
+      });
+    }
 
     startTurnTimer(room);
   });
@@ -524,6 +552,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", (reason) => {
+    socketMap.delete(socket.id);
     if (VERBOSE) log("DISC", `Socket disconnected`, { sid, reason, hadRoom: !!currentRoom, roomCode: currentRoom });
 
     if (!currentRoom) return;

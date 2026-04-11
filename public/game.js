@@ -23,6 +23,8 @@ let currentDigitLength = 4;
 let currentTurnTime = 0;
 let currentRoomCode = null;
 let playerName = null;
+let localYourGuesses = [];
+let localOpponentGuesses = [];
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  SCRATCHPAD / NOTES
@@ -1495,6 +1497,8 @@ socket.on("waiting-for-opponent-secret", () => {});
 socket.on("game-playing", async ({ yourName, opponentName, digitLength, isYourTurn, yourSecret, turnTime }) => {
   currentDigitLength = digitLength;
   currentTurnTime = turnTime || 0;
+  localYourGuesses = [];
+  localOpponentGuesses = [];
   $("#game-title").textContent = `${yourName} vs ${opponentName}`;
   $("#game-your-secret").textContent = yourSecret;
   $("#input-guess").maxLength = digitLength;
@@ -1567,14 +1571,25 @@ $("#input-guess").addEventListener("keydown", e => { if (e.key === "Enter") subm
 
 // ── Guess Result ────────────────────────────────────────────────────────────
 
-socket.on("guess-result", ({ isYourTurn, yourGuesses, opponentGuesses }) => {
-  renderGuesses($("#your-guesses"), yourGuesses, true);
-  renderGuesses($("#opponent-guesses"), opponentGuesses, true);
-  updateTurn(isYourTurn);
+socket.on("guess-result", (data) => {
+  if (data.yourGuesses) {
+    localYourGuesses = data.yourGuesses;
+    localOpponentGuesses = data.opponentGuesses;
+  } else if (data.lastGuess) {
+    if (data.isYourTurn) {
+      localOpponentGuesses.push(data.lastGuess);
+    } else {
+      localYourGuesses.push(data.lastGuess);
+    }
+  }
 
-  if (isYourTurn) {
+  renderGuesses($("#your-guesses"), localYourGuesses, true);
+  renderGuesses($("#opponent-guesses"), localOpponentGuesses, true);
+  updateTurn(data.isYourTurn);
+
+  if (data.isYourTurn) {
     sfxTurn();
-    const lastOpponentGuess = opponentGuesses[opponentGuesses.length - 1];
+    const lastOpponentGuess = localOpponentGuesses[localOpponentGuesses.length - 1];
     if (lastOpponentGuess) {
       const reaction = VOICE_LINES.opponentGuessReaction(
         lastOpponentGuess.numbersCorrect,
@@ -1590,13 +1605,13 @@ socket.on("guess-result", ({ isYourTurn, yourGuesses, opponentGuesses }) => {
       speakLine(pick(VOICE_LINES.yourTurn), { delay: 400 });
     }
   } else {
-    const lastYourGuess = yourGuesses[yourGuesses.length - 1];
+    const lastYourGuess = localYourGuesses[localYourGuesses.length - 1];
     if (lastYourGuess) {
       const line = VOICE_LINES.guessResult(
         lastYourGuess.numbersCorrect,
         lastYourGuess.positionsCorrect,
         currentDigitLength,
-        yourGuesses.length
+        localYourGuesses.length
       );
       speakLine(line, { delay: 300 });
     }
@@ -1657,8 +1672,10 @@ socket.on("timer-tick", ({ timeLeft, turnTime }) => {
 });
 
 socket.on("turn-skipped", ({ isYourTurn, yourGuesses, opponentGuesses, skippedPlayerId }) => {
-  renderGuesses($("#your-guesses"), yourGuesses, false);
-  renderGuesses($("#opponent-guesses"), opponentGuesses, false);
+  localYourGuesses = yourGuesses;
+  localOpponentGuesses = opponentGuesses;
+  renderGuesses($("#your-guesses"), localYourGuesses, false);
+  renderGuesses($("#opponent-guesses"), localOpponentGuesses, false);
   updateTurn(isYourTurn);
 
   if (skippedPlayerId === socket.id) {
@@ -1934,8 +1951,10 @@ socket.on("rejoin-state", (state) => {
       $("#turn-timer").classList.add("hidden");
     }
 
-    renderGuesses($("#your-guesses"), state.yourGuesses, false);
-    renderGuesses($("#opponent-guesses"), state.opponentGuesses, false);
+    localYourGuesses = state.yourGuesses;
+    localOpponentGuesses = state.opponentGuesses;
+    renderGuesses($("#your-guesses"), localYourGuesses, false);
+    renderGuesses($("#opponent-guesses"), localOpponentGuesses, false);
     updateTurn(state.isYourTurn);
     showScreen("game");
     loadNotes();
