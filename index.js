@@ -2,6 +2,7 @@ const uWS = require("uWebSockets.js");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const zlib = require("zlib");
 
 // ── Logging ─────────────────────────────────────────────────────────────────
 const LOG_LEVEL = (process.env.LOG_LEVEL || "normal").toLowerCase();
@@ -42,20 +43,101 @@ const MIME_TYPES = {
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 
-function serveStaticFile(res, filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  const mime = MIME_TYPES[ext] || "application/octet-stream";
+// Extensions that compress well enough to bother pre-gzipping.
+const COMPRESSIBLE = new Set([
+  ".html", ".css", ".js", ".json", ".svg", ".txt", ".xml", ".map",
+]);
 
-  let fileContent;
-  try {
-    fileContent = fs.readFileSync(filePath);
-  } catch {
-    res.writeStatus("404 Not Found").end("Not Found");
+// filePath (absolute) -> { buffer, gzip, mime, etag, cacheControl }
+const staticCache = new Map();
+
+function buildStaticCache(dir) {
+  let count = 0;
+  let totalBytes = 0;
+  const stack = [dir];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(full);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+
+      let buf;
+      try {
+        buf = fs.readFileSync(full);
+      } catch {
+        continue;
+      }
+
+      const ext = path.extname(full).toLowerCase();
+      const mime = MIME_TYPES[ext] || "application/octet-stream";
+
+      let gzip = null;
+      if (COMPRESSIBLE.has(ext) && buf.length >= 512) {
+        try {
+          gzip = zlib.gzipSync(buf, { level: zlib.constants.Z_BEST_COMPRESSION });
+          // Only keep gzip if it's actually smaller.
+          if (gzip.length >= buf.length) gzip = null;
+        } catch {
+          gzip = null;
+        }
+      }
+
+      const etag = '"' + crypto.createHash("sha1").update(buf).digest("base64").slice(0, 20) + '"';
+      // Short cache so deploys propagate quickly, but skip the disk read entirely on hot reloads.
+      const cacheControl = ext === ".html" ? "no-cache" : "public, max-age=300, must-revalidate";
+
+      staticCache.set(full, { buffer: buf, gzip, mime, etag, cacheControl });
+      count++;
+      totalBytes += buf.length;
+    }
+  }
+  return { count, totalBytes };
+}
+
+function acceptsGzip(req) {
+  const ae = req.getHeader("accept-encoding");
+  return typeof ae === "string" && ae.indexOf("gzip") !== -1;
+}
+
+function serveStaticFile(res, req, filePath) {
+  const entry = staticCache.get(filePath);
+  if (!entry) {
+    res.cork(() => {
+      res.writeStatus("404 Not Found").end("Not Found");
+    });
     return;
   }
-  res.writeHeader("Content-Type", mime);
-  res.writeHeader("Access-Control-Allow-Origin", "*");
-  res.end(fileContent);
+
+  const inm = req.getHeader("if-none-match");
+  const useGzip = entry.gzip && acceptsGzip(req);
+  const body = useGzip ? entry.gzip : entry.buffer;
+
+  res.cork(() => {
+    if (inm && inm === entry.etag) {
+      res.writeStatus("304 Not Modified");
+      res.writeHeader("ETag", entry.etag);
+      res.writeHeader("Cache-Control", entry.cacheControl);
+      res.endWithoutBody();
+      return;
+    }
+    res.writeHeader("Content-Type", entry.mime);
+    res.writeHeader("Access-Control-Allow-Origin", "*");
+    res.writeHeader("ETag", entry.etag);
+    res.writeHeader("Cache-Control", entry.cacheControl);
+    if (useGzip) res.writeHeader("Content-Encoding", "gzip");
+    res.writeHeader("Vary", "Accept-Encoding");
+    res.end(body);
+  });
 }
 
 // ── Game State ──────────────────────────────────────────────────────────────
@@ -80,6 +162,10 @@ function generateSocketId() {
 
 // ── WebSocket helpers ───────────────────────────────────────────────────────
 
+// Reused across every inbound message. Faster than Buffer.from(ab).toString()
+// because it skips Buffer allocation + init and decodes the ArrayBuffer directly.
+const inboundDecoder = new TextDecoder("utf-8", { fatal: false });
+
 function wsSend(ws, event, data) {
   try {
     const msg = JSON.stringify({ e: event, d: data });
@@ -98,12 +184,21 @@ function sendToSocket(socketId, event, data) {
 }
 
 // ── Turn Timer ──────────────────────────────────────────────────────────────
+//
+// A single 250 Hz master tick drives every active room's timer. Instead of
+// decrementing by 1 each iteration (which would drift with tick alignment),
+// each room stores `turnEndAt` (absolute wall-clock ms) and the tick emits
+// a new `timer-tick` only when the ceil-to-seconds remaining value changes.
+// This scales to thousands of concurrent games with one Node timer instead
+// of N, while preserving per-second client UX and ±250 ms expiry accuracy.
+
+const TICK_INTERVAL_MS = 250;
+const activeTimerRooms = new Set();
 
 function clearTurnTimer(room) {
-  if (room.turnTimer) {
-    clearInterval(room.turnTimer);
-    room.turnTimer = null;
-  }
+  activeTimerRooms.delete(room);
+  room.turnTimer = null;
+  room.turnEndAt = 0;
 }
 
 function startTurnTimer(room, options = {}) {
@@ -111,47 +206,75 @@ function startTurnTimer(room, options = {}) {
   clearTurnTimer(room);
   if (!room.turnTime || room.turnTime <= 0) return;
 
+  let tl;
   if (resetTimeLeft) {
-    room.timeLeft = room.turnTime;
+    tl = room.turnTime;
   } else {
     const left = room.timeLeft;
-    if (left == null || left <= 0) {
-      room.timeLeft = room.turnTime;
-    } else {
-      room.timeLeft = Math.min(left, room.turnTime);
+    if (left == null || left <= 0) tl = room.turnTime;
+    else tl = Math.min(left, room.turnTime);
+  }
+  room.timeLeft = tl;
+  room.turnEndAt = Date.now() + tl * 1000;
+
+  broadcastToRoom(room.code, "timer-tick", { timeLeft: tl, turnTime: room.turnTime });
+  room.turnTimer = true;
+  activeTimerRooms.add(room);
+}
+
+function handleTimerExpiry(room) {
+  if (room.phase !== "playing" || room.players.length < 2) return;
+
+  const skippedPlayer = room.players.find((p) => p.id === room.turn);
+  const opponent = room.players.find((p) => p.id !== room.turn);
+  if (!opponent) return;
+
+  log("TIMER", `Turn skipped for ${skippedPlayer ? skippedPlayer.name : "unknown"}`, { room: room.code });
+  room.turn = opponent.id;
+
+  for (const p of room.players) {
+    const opp = room.players.find((o) => o.id !== p.id);
+    sendToSocket(p.id, "turn-skipped", {
+      isYourTurn: p.id === room.turn,
+      yourGuesses: room.guesses[p.id],
+      opponentGuesses: room.guesses[opp.id],
+      skippedPlayerId: skippedPlayer ? skippedPlayer.id : null,
+    });
+  }
+
+  startTurnTimer(room);
+}
+
+setInterval(() => {
+  if (activeTimerRooms.size === 0) return;
+  const now = Date.now();
+  // Collect expired rooms separately so mutating the Set (via startTurnTimer)
+  // during the expiry branch does not disturb the main iterator.
+  let expired = null;
+  for (const room of activeTimerRooms) {
+    const remainingMs = room.turnEndAt - now;
+    if (remainingMs <= 0) {
+      if (room.timeLeft !== 0) {
+        room.timeLeft = 0;
+        broadcastToRoom(room.code, "timer-tick", { timeLeft: 0, turnTime: room.turnTime });
+      }
+      if (expired === null) expired = [];
+      expired.push(room);
+      continue;
+    }
+    const remainingSec = Math.ceil(remainingMs / 1000);
+    if (remainingSec !== room.timeLeft) {
+      room.timeLeft = remainingSec;
+      broadcastToRoom(room.code, "timer-tick", { timeLeft: remainingSec, turnTime: room.turnTime });
     }
   }
-  broadcastToRoom(room.code, "timer-tick", { timeLeft: room.timeLeft, turnTime: room.turnTime });
-
-  room.turnTimer = setInterval(() => {
-    room.timeLeft--;
-    broadcastToRoom(room.code, "timer-tick", { timeLeft: room.timeLeft, turnTime: room.turnTime });
-
-    if (room.timeLeft <= 0) {
+  if (expired) {
+    for (const room of expired) {
       clearTurnTimer(room);
-      if (room.phase !== "playing" || room.players.length < 2) return;
-
-      const skippedPlayer = room.players.find((p) => p.id === room.turn);
-      const opponent = room.players.find((p) => p.id !== room.turn);
-      if (!opponent) return;
-
-      log("TIMER", `Turn skipped for ${skippedPlayer ? skippedPlayer.name : "unknown"}`, { room: room.code });
-      room.turn = opponent.id;
-
-      for (const p of room.players) {
-        const opp = room.players.find((o) => o.id !== p.id);
-        sendToSocket(p.id, "turn-skipped", {
-          isYourTurn: p.id === room.turn,
-          yourGuesses: room.guesses[p.id],
-          opponentGuesses: room.guesses[opp.id],
-          skippedPlayerId: skippedPlayer ? skippedPlayer.id : null,
-        });
-      }
-
-      startTurnTimer(room);
+      handleTimerExpiry(room);
     }
-  }, 1000);
-}
+  }
+}, TICK_INTERVAL_MS);
 
 // ── Chat helpers ────────────────────────────────────────────────────────────
 
@@ -168,27 +291,54 @@ function sanitizeChatText(raw) {
 
 // ── Game logic ──────────────────────────────────────────────────────────────
 
+// Reused across calls — evaluateGuess is single-threaded (Node's main thread)
+// and always resets it before use, so it's safe to hoist the allocation out.
+const EVAL_COUNTS = new Uint8Array(10);
+
 function evaluateGuess(secret, guess) {
   const len = secret.length;
   let positionsCorrect = 0;
   let numbersCorrect = 0;
-  const secretDigits = secret.split("");
+
+  const counts = EVAL_COUNTS;
+  for (let i = 0; i < 10; i++) counts[i] = 0;
 
   for (let i = 0; i < len; i++) {
-    if (guess[i] === secret[i]) {
-      positionsCorrect++;
-    }
+    const sc = secret.charCodeAt(i);
+    const gc = guess.charCodeAt(i);
+    counts[sc - 48]++;
+    if (sc === gc) positionsCorrect++;
   }
 
-  for (const digit of guess) {
-    const idx = secretDigits.indexOf(digit);
-    if (idx !== -1) {
+  for (let i = 0; i < len; i++) {
+    const gd = guess.charCodeAt(i) - 48;
+    if (counts[gd] > 0) {
       numbersCorrect++;
-      secretDigits.splice(idx, 1);
+      counts[gd]--;
     }
   }
 
   return { numbersCorrect, positionsCorrect };
+}
+
+// Classify a user-supplied digit string in a single pass.
+// Preserves the two distinct error messages used by the protocol:
+//   0 = ok, 1 = wrong length / non-digit character, 2 = duplicate digit.
+const DIGIT_OK = 0;
+const DIGIT_BAD_FORMAT = 1;
+const DIGIT_DUPLICATE = 2;
+
+function classifyDigitString(s, expectedLen) {
+  if (typeof s !== "string" || s.length !== expectedLen) return DIGIT_BAD_FORMAT;
+  let bitmask = 0;
+  for (let i = 0; i < expectedLen; i++) {
+    const c = s.charCodeAt(i) - 48;
+    if (c < 0 || c > 9) return DIGIT_BAD_FORMAT;
+    const bit = 1 << c;
+    if ((bitmask & bit) !== 0) return DIGIT_DUPLICATE;
+    bitmask |= bit;
+  }
+  return DIGIT_OK;
 }
 
 function logRoom(room) {
@@ -379,12 +529,13 @@ function handleSetSecret(ws, { secret }) {
   const player = room.players.find((p) => p.id === socketId);
   if (!player) return;
 
-  const s = secret.trim();
-  if (s.length !== room.digitLength || !/^\d+$/.test(s)) {
+  const s = typeof secret === "string" ? secret.trim() : "";
+  const kind = classifyDigitString(s, room.digitLength);
+  if (kind === DIGIT_BAD_FORMAT) {
     wsSend(ws, "error-msg", `Secret must be exactly ${room.digitLength} digits (0-9).`);
     return;
   }
-  if (new Set(s).size !== s.length) {
+  if (kind === DIGIT_DUPLICATE) {
     wsSend(ws, "error-msg", "No repeated digits allowed.");
     return;
   }
@@ -432,12 +583,13 @@ function handleMakeGuess(ws, { guess }) {
     return;
   }
 
-  const g = guess.trim();
-  if (g.length !== room.digitLength || !/^\d+$/.test(g)) {
+  const g = typeof guess === "string" ? guess.trim() : "";
+  const kind = classifyDigitString(g, room.digitLength);
+  if (kind === DIGIT_BAD_FORMAT) {
     wsSend(ws, "error-msg", `Guess must be exactly ${room.digitLength} digits.`);
     return;
   }
-  if (new Set(g).size !== g.length) {
+  if (kind === DIGIT_DUPLICATE) {
     wsSend(ws, "error-msg", "No repeated digits allowed.");
     return;
   }
@@ -720,18 +872,17 @@ app.ws("/*", {
   message: (ws, message, isBinary) => {
     let parsed;
     try {
-      const text = Buffer.from(message).toString("utf-8");
-      parsed = JSON.parse(text);
+      parsed = JSON.parse(inboundDecoder.decode(message));
     } catch {
       return;
     }
 
-    const { e: event, d: data } = parsed;
+    const event = parsed.e;
     if (!event) return;
 
     const handler = EVENT_HANDLERS[event];
     if (handler) {
-      handler(ws, data || {});
+      handler(ws, parsed.d || {});
     }
   },
 
@@ -742,9 +893,11 @@ app.ws("/*", {
 
 // ── Static file serving ─────────────────────────────────────────────────────
 
+const INDEX_HTML_PATH = path.join(PUBLIC_DIR, "index.html");
+
 app.get("/", (res, req) => {
   res.onAborted(() => {});
-  serveStaticFile(res, path.join(PUBLIC_DIR, "index.html"));
+  serveStaticFile(res, req, INDEX_HTML_PATH);
 });
 
 app.get("/*", (res, req) => {
@@ -754,11 +907,13 @@ app.get("/*", (res, req) => {
   const filePath = path.join(PUBLIC_DIR, safePath);
 
   if (!filePath.startsWith(PUBLIC_DIR)) {
-    res.writeStatus("403 Forbidden").end("Forbidden");
+    res.cork(() => {
+      res.writeStatus("403 Forbidden").end("Forbidden");
+    });
     return;
   }
 
-  serveStaticFile(res, filePath);
+  serveStaticFile(res, req, filePath);
 });
 
 // ── Cleanup stale rooms every 30 minutes ────────────────────────────────────
@@ -778,8 +933,11 @@ setInterval(() => {
 }, 30 * 60 * 1000);
 
 // ── Periodic state snapshot ─────────────────────────────────────────────────
+// Only walks rooms when the snapshot would actually be logged — logRoom() is
+// non-trivial at high room counts and log() drops output when LOG_LEVEL=quiet.
 
 setInterval(() => {
+  if (QUIET) return;
   if (rooms.size === 0) return;
   const snapshot = [];
   for (const [, room] of rooms) {
@@ -791,6 +949,12 @@ setInterval(() => {
 // ── Start server ────────────────────────────────────────────────────────────
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
+
+const cacheStats = buildStaticCache(PUBLIC_DIR);
+log("SERVER", `Static file cache warmed`, {
+  files: cacheStats.count,
+  totalBytes: cacheStats.totalBytes,
+});
 
 app.listen(PORT, (listenSocket) => {
   if (listenSocket) {

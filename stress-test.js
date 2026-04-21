@@ -158,6 +158,15 @@ function avg(arr) {
   return arr.reduce((a, b) => a + b, 0) / arr.length;
 }
 
+function arrMax(arr) {
+  if (arr.length === 0) return 0;
+  let m = arr[0];
+  for (let i = 1; i < arr.length; i++) {
+    if (arr[i] > m) m = arr[i];
+  }
+  return m;
+}
+
 // ── PHASE 1: Connect all sockets ────────────────────────────────────────────
 
 async function connectAllSockets() {
@@ -520,7 +529,7 @@ function printReport() {
     console.log(`  p50:                 ${percentile(metrics.connectTimes, 50)}ms`);
     console.log(`  p95:                 ${percentile(metrics.connectTimes, 95)}ms`);
     console.log(`  p99:                 ${percentile(metrics.connectTimes, 99)}ms`);
-    console.log(`  max:                 ${Math.max(...metrics.connectTimes)}ms`);
+    console.log(`  max:                 ${arrMax(metrics.connectTimes)}ms`);
   }
   console.log("");
 
@@ -547,12 +556,12 @@ function printReport() {
     console.log(`  Guess RTT p50:       ${percentile(metrics.guessTimes, 50)}ms`);
     console.log(`  Guess RTT p95:       ${percentile(metrics.guessTimes, 95)}ms`);
     console.log(`  Guess RTT p99:       ${percentile(metrics.guessTimes, 99)}ms`);
-    console.log(`  Guess RTT max:       ${Math.max(...metrics.guessTimes)}ms`);
+    console.log(`  Guess RTT max:       ${arrMax(metrics.guessTimes)}ms`);
   }
   if (metrics.gameCompleteTimes.length > 0) {
     console.log(`  Game duration avg:   ${(avg(metrics.gameCompleteTimes) / 1000).toFixed(1)}s`);
     console.log(`  Game duration p95:   ${(percentile(metrics.gameCompleteTimes, 95) / 1000).toFixed(1)}s`);
-    console.log(`  Game duration max:   ${(Math.max(...metrics.gameCompleteTimes) / 1000).toFixed(1)}s`);
+    console.log(`  Game duration max:   ${(arrMax(metrics.gameCompleteTimes) / 1000).toFixed(1)}s`);
   }
   console.log("");
 
